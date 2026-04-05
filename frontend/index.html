@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>HIREPATH — Autonomous Recruitment Intelligence</title>
+<meta name="description" content="5-agent autonomous recruitment system that sources, screens, engages, schedules, and tracks candidates."/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #06060b; --surface: rgba(14,15,25,0.85); --surface-solid: #0e0f19;
+  --border: rgba(255,255,255,0.06); --border-hover: rgba(255,255,255,0.12);
+  --text: #e8eaed; --muted: #6b7280; --dim: #3d4250;
+  --accent: #7c3aed; --accent-light: #a78bfa; --accent-glow: rgba(124,58,237,0.3);
+  --green: #34d399; --green-dim: rgba(52,211,153,0.15);
+  --yellow: #fbbf24; --yellow-dim: rgba(251,191,36,0.15);
+  --red: #f87171; --red-dim: rgba(248,113,113,0.15);
+  --blue: #60a5fa; --blue-dim: rgba(96,165,250,0.15);
+  --gradient-1: linear-gradient(135deg, #7c3aed 0%, #2563eb 50%, #06b6d4 100%);
+  --gradient-2: linear-gradient(135deg, #7c3aed, #ec4899);
+  --radius: 12px; --radius-sm: 8px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow: hidden; cursor: none; }
+
+/* ── CUSTOM CURSOR ───────────────────────────────── */
+#cursor-dot { position: fixed; width: 8px; height: 8px; background: #fff; border-radius: 50%; pointer-events: none; z-index: 9999; transition: transform 0.1s; mix-blend-mode: difference; }
+#cursor-ring { position: fixed; width: 40px; height: 40px; border: 1.5px solid rgba(124,58,237,0.5); border-radius: 50%; pointer-events: none; z-index: 9998; transition: width 0.3s, height 0.3s, border-color 0.3s; transform: translate(-50%, -50%); }
+#cursor-glow { position: fixed; width: 300px; height: 300px; background: radial-gradient(circle, rgba(124,58,237,0.08) 0%, transparent 70%); border-radius: 50%; pointer-events: none; z-index: 1; transform: translate(-50%, -50%); }
+body:hover #cursor-ring { border-color: rgba(124,58,237,0.7); }
+.btn:hover ~ #cursor-ring, .card:hover ~ #cursor-ring { width: 60px; height: 60px; border-color: var(--accent-light); }
+
+/* ── NOISE OVERLAY ───────────────────────────────── */
+body::before { content: ''; position: fixed; inset: 0; background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"); pointer-events: none; z-index: 0; }
+
+/* ── AMBIENT GRADIENT ────────────────────────────── */
+.ambient-orb { position: fixed; border-radius: 50%; filter: blur(120px); pointer-events: none; z-index: 0; animation: orb-float 20s ease-in-out infinite; }
+.orb-1 { width: 600px; height: 600px; background: rgba(124,58,237,0.08); top: -200px; right: -200px; }
+.orb-2 { width: 500px; height: 500px; background: rgba(6,182,212,0.05); bottom: -200px; left: -100px; animation-delay: -10s; }
+@keyframes orb-float { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(30px,20px) scale(1.1); } }
+
+/* ── HEADER ──────────────────────────────────────── */
+header { position: relative; z-index: 10; background: rgba(6,6,11,0.8); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0 28px; display: flex; align-items: center; justify-content: space-between; height: 60px; }
+.logo { display: flex; align-items: center; gap: 10px; }
+.logo-icon { width: 32px; height: 32px; background: var(--gradient-1); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: #fff; letter-spacing: -1px; box-shadow: 0 0 20px var(--accent-glow); }
+.logo h1 { font-size: 16px; font-weight: 800; letter-spacing: 3px; background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.status-badge { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); background: rgba(255,255,255,0.03); padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); }
+.pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity:1; box-shadow: 0 0 8px var(--green); } 50% { opacity:.5; box-shadow: 0 0 2px var(--green); } }
+
+/* ── LAYOUT ──────────────────────────────────────── */
+.layout { position: relative; z-index: 2; display: grid; grid-template-columns: 270px 1fr 310px; height: calc(100vh - 60px); }
+
+/* ── SIDEBAR ─────────────────────────────────────── */
+.sidebar { background: rgba(10,11,20,0.6); backdrop-filter: blur(12px); border-right: 1px solid var(--border); overflow-y: auto; padding: 20px 14px; scrollbar-width: thin; scrollbar-color: var(--dim) transparent; }
+.section-label { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); padding: 0 8px; margin: 20px 0 10px; }
+.section-label:first-child { margin-top: 0; }
+
+.role-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 8px; cursor: pointer; transition: all 0.25s cubic-bezier(0.4,0,0.2,1); position: relative; overflow: hidden; }
+.role-card::before { content: ''; position: absolute; inset: 0; background: var(--gradient-1); opacity: 0; transition: opacity 0.3s; }
+.role-card:hover { border-color: var(--border-hover); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+.role-card:hover::before { opacity: 0.03; }
+.role-card.active { border-color: var(--accent); background: rgba(124,58,237,0.06); box-shadow: 0 0 30px rgba(124,58,237,0.08), inset 0 0 30px rgba(124,58,237,0.03); }
+.role-card.active::before { opacity: 0.05; }
+.role-name { font-weight: 600; font-size: 13px; margin-bottom: 6px; position: relative; z-index: 1; }
+.role-meta { font-size: 11px; color: var(--muted); display: flex; gap: 8px; align-items: center; position: relative; z-index: 1; }
+
+.badge { display: inline-flex; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; }
+.badge-active { background: var(--green-dim); color: var(--green); }
+.badge-sourced { background: rgba(139,92,246,0.15); color: #a78bfa; }
+.badge-screened { background: var(--blue-dim); color: var(--blue); }
+.badge-outreach_sent { background: var(--yellow-dim); color: var(--yellow); }
+.badge-replied { background: var(--green-dim); color: var(--green); }
+.badge-interview_scheduled { background: rgba(16,185,129,0.15); color: #34d399; }
+.badge-interviewed { background: var(--blue-dim); color: var(--blue); }
+.badge-offer { background: rgba(124,58,237,0.15); color: var(--accent-light); }
+.badge-hired { background: var(--green-dim); color: var(--green); }
+.badge-rejected { background: var(--red-dim); color: var(--red); }
+.badge-stale { background: var(--yellow-dim); color: var(--yellow); }
+
+.agent-btn { width: 100%; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--muted); font-size: 12px; font-weight: 500; font-family: 'Inter', sans-serif; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; text-align: left; }
+.agent-btn:hover { border-color: var(--accent); color: var(--text); background: rgba(124,58,237,0.05); transform: translateX(4px); }
+.agent-btn.primary { background: var(--gradient-1); border: none; color: #fff; font-weight: 600; justify-content: center; box-shadow: 0 4px 15px var(--accent-glow); }
+.agent-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px var(--accent-glow); }
+
+.health-widget { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-top: 8px; }
+.health-score { font-size: 32px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+.health-bar-outer { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.05); overflow: hidden; margin: 8px 0 6px; }
+.health-bar-fill { height: 100%; border-radius: 3px; transition: width 0.8s cubic-bezier(0.4,0,0.2,1); }
+
+/* ── MAIN CONTENT ────────────────────────────────── */
+.main { overflow-y: auto; padding: 24px; scrollbar-width: thin; scrollbar-color: var(--dim) transparent; }
+
+.tab-bar { display: flex; gap: 4px; margin-bottom: 20px; background: rgba(255,255,255,0.02); border-radius: var(--radius-sm); padding: 4px; border: 1px solid var(--border); width: fit-content; }
+.tab { padding: 8px 20px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--muted); border-radius: 6px; transition: all 0.2s; }
+.tab.active { color: #fff; background: var(--accent); box-shadow: 0 2px 10px var(--accent-glow); }
+
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+.stat-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; position: relative; overflow: hidden; transition: all 0.3s; }
+.stat-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+.stat-card::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--gradient-1); opacity: 0; transition: opacity 0.3s; }
+.stat-card:hover::after { opacity: 1; }
+.stat-value { font-size: 30px; font-weight: 800; font-family: 'JetBrains Mono', monospace; background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.stat-label { font-size: 11px; color: var(--muted); margin-top: 4px; letter-spacing: 0.5px; }
+
+.pipeline-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.pipeline-title { font-size: 18px; font-weight: 700; }
+.action-btns { display: flex; gap: 8px; }
+.action-btn { padding: 7px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-size: 12px; font-weight: 500; font-family: 'Inter', sans-serif; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
+.action-btn:hover { border-color: var(--accent); background: rgba(124,58,237,0.08); transform: translateY(-1px); }
+
+.stage-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.stage-pill { padding: 5px 12px; border-radius: 16px; font-size: 11px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); color: var(--muted); background: transparent; font-family: 'Inter', sans-serif; transition: all 0.2s; }
+.stage-pill.active { border-color: var(--accent); color: #fff; background: rgba(124,58,237,0.15); }
+.stage-pill:hover { border-color: var(--border-hover); }
+
+.candidate-row { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; display: flex; align-items: center; gap: 12px; margin-bottom: 6px; cursor: pointer; transition: all 0.25s cubic-bezier(0.4,0,0.2,1); }
+.candidate-row:hover { border-color: var(--accent); background: rgba(124,58,237,0.04); transform: translateX(4px); }
+.cand-info { flex: 1; min-width: 0; }
+.cand-name { font-weight: 600; font-size: 14px; }
+.cand-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
+.score-num { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; min-width: 32px; text-align: right; }
+.score-bar { width: 60px; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.05); overflow: hidden; }
+.score-fill { height: 100%; border-radius: 2px; transition: width 0.5s cubic-bezier(0.4,0,0.2,1); }
+
+.insight { padding: 10px 14px; background: rgba(255,255,255,0.02); border-left: 3px solid var(--accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin: 6px 0; font-size: 12px; color: var(--muted); }
+
+/* ── LOG PANEL ───────────────────────────────────── */
+.log-panel { background: rgba(10,11,20,0.6); backdrop-filter: blur(12px); border-left: 1px solid var(--border); display: flex; flex-direction: column; }
+.panel-title { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); padding: 16px 18px; border-bottom: 1px solid var(--border); }
+.log-feed { flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--dim) transparent; }
+.log-entry { padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 12px; animation: log-in 0.3s ease-out; }
+@keyframes log-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+.log-agent { font-weight: 700; font-size: 9px; padding: 2px 7px; border-radius: 4px; margin-right: 8px; letter-spacing: 0.5px; font-family: 'JetBrains Mono', monospace; }
+.agent-SCOUT { background: rgba(139,92,246,0.15); color: #a78bfa; }
+.agent-SCREEN { background: rgba(6,182,212,0.15); color: #22d3ee; }
+.agent-ENGAGE { background: rgba(245,158,11,0.15); color: #fbbf24; }
+.agent-COORD { background: rgba(16,185,129,0.15); color: #34d399; }
+.agent-TRACK { background: rgba(99,102,241,0.15); color: #818cf8; }
+.agent-ORCHESTRATOR { background: rgba(192,132,252,0.15); color: #c084fc; }
+.agent-SYSTEM { background: rgba(96,165,250,0.15); color: #60a5fa; }
+.log-msg { color: var(--muted); }
+.log-time { color: var(--dim); font-size: 10px; font-family: 'JetBrains Mono', monospace; margin-top: 3px; }
+
+/* ── MODALS ──────────────────────────────────────── */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 100; animation: fade-in 0.2s; }
+@keyframes fade-in { from { opacity: 0; } }
+.modal-box { background: var(--surface-solid); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 520px; max-height: 80vh; overflow-y: auto; animation: modal-in 0.3s cubic-bezier(0.4,0,0.2,1); box-shadow: 0 25px 50px rgba(0,0,0,0.5); }
+@keyframes modal-in { from { opacity: 0; transform: scale(0.95) translateY(10px); } }
+.modal-title { font-size: 18px; font-weight: 700; margin-bottom: 20px; background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.form-group { margin-bottom: 14px; }
+.label { font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 6px; }
+.input { width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 13px; font-family: 'Inter', sans-serif; outline: none; transition: border-color 0.2s; }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+textarea.input { resize: vertical; min-height: 90px; }
+.btn-row { display: flex; gap: 8px; margin-top: 20px; }
+.btn { padding: 10px 20px; border-radius: var(--radius-sm); border: none; font-size: 13px; font-weight: 600; font-family: 'Inter', sans-serif; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+.btn-primary { background: var(--gradient-1); color: #fff; box-shadow: 0 4px 15px var(--accent-glow); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px var(--accent-glow); }
+.btn-ghost { background: rgba(255,255,255,0.03); color: var(--muted); border: 1px solid var(--border); }
+.btn-ghost:hover { color: var(--text); border-color: var(--accent); }
+.btn-green { background: var(--green); color: #000; }
+
+.brief-section { margin: 14px 0; }
+.brief-section h4 { font-size: 10px; font-weight: 700; color: var(--dim); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; }
+.brief-section ul { padding-left: 18px; }
+.brief-section li { font-size: 13px; color: var(--text); margin: 4px 0; line-height: 1.5; }
+.q-item { padding: 8px 12px; background: rgba(255,255,255,0.02); border-radius: var(--radius-sm); font-size: 13px; color: var(--text); margin: 5px 0; border-left: 3px solid var(--accent); line-height: 1.5; }
+.verdict-box { background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.15); padding: 12px 16px; border-radius: var(--radius-sm); font-style: italic; color: var(--accent-light); margin-bottom: 14px; font-size: 14px; }
+.rec-badge { display: inline-flex; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 14px; }
+
+.spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.1); border-top-color: var(--accent-light); border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.hidden { display: none !important; }
+.text-sm { font-size: 12px; }
+.text-muted { color: var(--muted); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--dim); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Animations */
+@keyframes slide-up { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+.anim-in { animation: slide-up 0.4s cubic-bezier(0.4,0,0.2,1) both; }
+</style>
+</head>
+<body>
+
+<!-- Cursor -->
+<div id="cursor-dot"></div>
+<div id="cursor-ring"></div>
+<div id="cursor-glow"></div>
+
+<!-- Ambient orbs -->
+<div class="ambient-orb orb-1"></div>
+<div class="ambient-orb orb-2"></div>
+
+<!-- Particle Canvas -->
+<canvas id="particle-canvas"></canvas>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">H</div>
+    <h1>HIREPATH</h1>
+  </div>
+  <div class="status-badge">
+    <span class="pulse-dot" id="conn-dot"></span>
+    <span id="conn-status">Connecting...</span>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="section-label">Open Roles</div>
+    <div id="roles-list"></div>
+    <button class="agent-btn" style="margin-top:6px" onclick="openNewRoleModal()">＋ &nbsp;New Role</button>
+
+    <div class="section-label">Run Agents</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <button class="agent-btn" onclick="runScout()" id="scout-btn">🔍 &nbsp;SCOUT</button>
+      <button class="agent-btn" onclick="runScreenAll()" id="screen-btn">📋 &nbsp;SCREEN All</button>
+      <button class="agent-btn" onclick="runFollowupSweep()">📬 &nbsp;Follow-up Sweep</button>
+      <button class="agent-btn" onclick="runTrack()">📊 &nbsp;TRACK</button>
+      <button class="agent-btn" onclick="discoverAllEmails()">📧 &nbsp;Discover Emails</button>
+      <button class="agent-btn primary" onclick="runFullPipeline()">▶ &nbsp;Run Full Pipeline</button>
+    </div>
+
+    <div class="section-label">Pipeline Health</div>
+    <div id="health-sidebar">
+      <div class="health-widget"><div class="text-muted text-sm">Select a role</div></div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="tab-bar">
+      <div class="tab active" onclick="switchTab('pipeline',this)">Pipeline</div>
+      <div class="tab" onclick="switchTab('health',this)">Health</div>
+      <div class="tab" onclick="switchTab('emails',this)">📧 Emails</div>
+      <div class="tab" onclick="switchTab('analytics',this)">📊 Analytics</div>
+      <div class="tab" onclick="switchTab('report',this)">Report</div>
+    </div>
+
+    <div id="tab-pipeline">
+      <div class="stats-grid" id="stats-row">
+        <div class="stat-card anim-in"><div class="stat-value" id="s-roles">—</div><div class="stat-label">Open Roles</div></div>
+        <div class="stat-card anim-in" style="animation-delay:.05s"><div class="stat-value" id="s-total">—</div><div class="stat-label">Total Candidates</div></div>
+        <div class="stat-card anim-in" style="animation-delay:.1s"><div class="stat-value" id="s-screened">—</div><div class="stat-label">Screened</div></div>
+        <div class="stat-card anim-in" style="animation-delay:.15s"><div class="stat-value" id="s-hired">—</div><div class="stat-label">Hired</div></div>
+      </div>
+
+      <div id="no-role-msg" class="text-muted text-sm" style="padding:40px 0;text-align:center;font-size:14px">← Select a role to view the candidate pipeline</div>
+      <div id="pipeline-view" class="hidden">
+        <div class="pipeline-header">
+          <div class="pipeline-title" id="pipeline-role-title"></div>
+          <div class="action-btns">
+            <button class="action-btn" onclick="engageTop()">✉ Engage Top</button>
+            <button class="action-btn" onclick="discoverAllEmails()" id="email-disc-btn">🔍 Find Emails</button>
+            <button class="action-btn" onclick="openCoordModal()">📅 Schedule</button>
+            <button class="action-btn" onclick="exportCSV()">⬇ CSV</button>
+          </div>
+        </div>
+        <div class="stage-pills" id="stage-pills"></div>
+        <div id="candidate-list"></div>
+      </div>
+    </div>
+
+    <div id="tab-health" class="hidden">
+      <div id="health-detail"><div class="text-muted" style="padding:40px 0;text-align:center">Select a role and click TRACK to see health data.</div></div>
+    </div>
+
+    <div id="tab-report" class="hidden">
+      <button class="btn btn-primary" onclick="loadReport()" style="margin-bottom:20px">Generate Weekly Report</button>
+      <div id="report-content" class="text-muted text-sm">Click above to generate.</div>
+    </div>
+
+    <div id="tab-emails" class="hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:18px;font-weight:700;margin-bottom:4px">Email Discovery</div>
+          <div class="text-muted text-sm">Multi-source email finder: GitHub profile → commit history → Hunter.io → SMTP verification</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="discoverAllEmails()" id="bulk-email-btn">🔍 Discover All Emails</button>
+          <button class="btn btn-ghost" onclick="openDomainSearchModal()">🏢 Domain Search</button>
+          <button class="btn btn-ghost" onclick="exportCSV()">⬇ Export CSV</button>
+        </div>
+      </div>
+      <div id="email-stats-bar" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
+      <div id="email-table-container">
+        <div class="text-muted text-sm">Select a role to see email discovery status.</div>
+      </div>
+    </div>
+
+    <div id="tab-analytics" class="hidden">
+      <div style="font-size:18px;font-weight:700;margin-bottom:20px">Pipeline Analytics</div>
+      <div id="analytics-content">
+        <div class="text-muted text-sm">Select a role to view analytics.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity log -->
+  <div class="log-panel">
+    <div class="panel-title">Agent Activity</div>
+    <div id="log-feed" class="log-feed"></div>
+  </div>
+</div>
+
+<!-- New Role Modal -->
+<div id="new-role-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-title">Create New Role</div>
+    <div class="form-group"><div class="label">Job Title</div><input id="nr-title" class="input" placeholder="e.g. Senior Backend Engineer"/></div>
+    <div class="form-group"><div class="label">Description</div><textarea id="nr-desc" class="input" placeholder="Describe the role, team, tech stack..."></textarea></div>
+    <div class="form-group"><div class="label">Requirements</div><textarea id="nr-req" class="input" placeholder="Python, FastAPI, 4+ years..."></textarea></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="createRole()">Create Role</button>
+      <button class="btn btn-ghost" onclick="closeModal('new-role-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Coord Modal -->
+<div id="coord-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-title">📅 Schedule Interview</div>
+    <div class="form-group"><div class="label">Candidate</div><select id="coord-candidate" class="input"></select></div>
+    <div class="form-group"><div class="label">Interviewer Email</div><input id="coord-email" class="input" placeholder="interviewer@company.com"/></div>
+    <div class="form-group"><div class="label">Duration (minutes)</div><input id="coord-duration" class="input" type="number" value="45"/></div>
+    <div class="btn-row">
+      <button class="btn btn-green" onclick="scheduleInterview()">Schedule</button>
+      <button class="btn btn-ghost" onclick="closeModal('coord-modal')">Cancel</button>
+    </div>
+    <div id="coord-result" style="margin-top:14px"></div>
+  </div>
+</div>
+
+<!-- Brief Modal -->
+<div id="brief-modal" class="modal-overlay hidden">
+  <div class="modal-box" style="width:580px">
+    <div class="modal-title" id="brief-name"></div>
+    <div id="brief-content"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="brief-engage-btn">✉ Send Outreach</button>
+      <button class="btn btn-ghost" id="brief-email-disc-btn">🔍 Find Email</button>
+      <button class="btn btn-ghost" onclick="closeModal('brief-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Domain Search Modal -->
+<div id="domain-modal" class="modal-overlay hidden">
+  <div class="modal-box" style="width:540px">
+    <div class="modal-title">🏢 Company Domain Email Search</div>
+    <div class="form-group">
+      <div class="label">Company Domain</div>
+      <input id="domain-input" class="input" placeholder="e.g. google.com, stripe.com"/>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="runDomainSearch()">Search Emails</button>
+      <button class="btn btn-ghost" onclick="closeModal('domain-modal')">Cancel</button>
+    </div>
+    <div id="domain-results" style="margin-top:16px"></div>
+  </div>
+</div>
+
+<script>
+// ── CUSTOM CURSOR ────────────────────────────────────
+const dot = document.getElementById('cursor-dot');
+const ring = document.getElementById('cursor-ring');
+const glow = document.getElementById('cursor-glow');
+let mx = 0, my = 0, rx = 0, ry = 0;
+
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  dot.style.left = mx - 4 + 'px'; dot.style.top = my - 4 + 'px';
+  glow.style.left = mx + 'px'; glow.style.top = my + 'px';
+});
+
+function animateRing() {
+  rx += (mx - rx) * 0.15; ry += (my - ry) * 0.15;
+  ring.style.left = rx + 'px'; ring.style.top = ry + 'px';
+  requestAnimationFrame(animateRing);
+}
+animateRing();
+
+document.querySelectorAll('button, .role-card, .candidate-row, .tab, .stage-pill, .action-btn, .agent-btn, a').forEach(el => {
+  el.style.cursor = 'none';
+  el.addEventListener('mouseenter', () => { ring.style.width = '55px'; ring.style.height = '55px'; ring.style.borderColor = 'rgba(124,58,237,0.8)'; dot.style.transform = 'scale(1.5)'; });
+  el.addEventListener('mouseleave', () => { ring.style.width = '40px'; ring.style.height = '40px'; ring.style.borderColor = 'rgba(124,58,237,0.5)'; dot.style.transform = 'scale(1)'; });
+});
+
+// Re-attach cursor events for dynamically created elements
+const observer = new MutationObserver(() => {
+  document.querySelectorAll('button, .role-card, .candidate-row, .tab, .stage-pill, .action-btn, .agent-btn').forEach(el => {
+    if (el.dataset.cursorBound) return;
+    el.dataset.cursorBound = '1';
+    el.style.cursor = 'none';
+    el.addEventListener('mouseenter', () => { ring.style.width = '55px'; ring.style.height = '55px'; ring.style.borderColor = 'rgba(124,58,237,0.8)'; dot.style.transform = 'scale(1.5)'; });
+    el.addEventListener('mouseleave', () => { ring.style.width = '40px'; ring.style.height = '40px'; ring.style.borderColor = 'rgba(124,58,237,0.5)'; dot.style.transform = 'scale(1)'; });
+  });
+});
+observer.observe(document.body, { childList: true, subtree: true });
+
+// ── APP LOGIC ────────────────────────────────────────
+const API = 'http://localhost:8000/api';
+let selectedRoleId = null, selectedStageFilter = null, allCandidates = [], sseSource = null;
+
+function connectSSE() {
+  if (sseSource) sseSource.close();
+  sseSource = new EventSource(`${API}/events`);
+  sseSource.onopen = () => setConnStatus(true);
+  sseSource.onmessage = e => {
+    try {
+      const d = JSON.parse(e.data);
+      if (d.event === 'heartbeat') return;
+      appendLog(d);
+      if (['candidate_found','candidate_added','screening_complete','outreach_sent','followup_sent','reply_received','interview_scheduled','completed'].includes(d.event)) {
+        refreshCandidates(); loadStats();
+      }
+    } catch{}
+  };
+  sseSource.onerror = () => { setConnStatus(false); setTimeout(connectSSE, 3000); };
+}
+
+function setConnStatus(ok) {
+  document.getElementById('conn-dot').style.background = ok ? 'var(--green)' : 'var(--red)';
+  document.getElementById('conn-dot').style.boxShadow = ok ? '0 0 8px var(--green)' : '0 0 8px var(--red)';
+  document.getElementById('conn-status').textContent = ok ? 'Live' : 'Reconnecting...';
+}
+
+function appendLog(d) {
+  const feed = document.getElementById('log-feed');
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  const agent = d.agent || 'SYSTEM';
+  el.innerHTML = `<span class="log-agent agent-${agent}">${agent}</span><span class="log-msg">${d.message || d.event || ''}</span><div class="log-time">${new Date().toLocaleTimeString()}</div>`;
+  feed.insertBefore(el, feed.firstChild);
+  if (feed.children.length > 200) feed.removeChild(feed.lastChild);
+}
+
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/stats`); const d = await r.json();
+    document.getElementById('s-roles').textContent = d.total_roles;
+    document.getElementById('s-total').textContent = d.total_candidates;
+    document.getElementById('s-screened').textContent = d.stage_breakdown?.screened || 0;
+    document.getElementById('s-hired').textContent = d.stage_breakdown?.hired || 0;
+  } catch{}
+}
+
+async function loadRoles() {
+  const r = await fetch(`${API}/roles`); const roles = await r.json();
+  const el = document.getElementById('roles-list'); el.innerHTML = '';
+  roles.forEach(role => {
+    const card = document.createElement('div');
+    card.className = 'role-card' + (role.id === selectedRoleId ? ' active' : '');
+    card.innerHTML = `<div class="role-name">${role.title}</div><div class="role-meta"><span class="badge badge-active">${role.status}</span><span>candidates</span></div>`;
+    card.onclick = () => selectRole(role.id, role.title);
+    el.appendChild(card);
+  });
+}
+
+async function selectRole(roleId, title) {
+  selectedRoleId = roleId; selectedStageFilter = null;
+  document.getElementById('no-role-msg').classList.add('hidden');
+  document.getElementById('pipeline-view').classList.remove('hidden');
+  document.getElementById('pipeline-role-title').textContent = title;
+  loadRoles(); refreshCandidates(); loadHealthSidebar(roleId);
+}
+
+const STAGES = ['sourced','screened','outreach_sent','replied','interview_scheduled','interviewed','offer','hired','rejected','stale'];
+
+async function refreshCandidates() {
+  if (!selectedRoleId) return;
+  const url = selectedStageFilter ? `${API}/roles/${selectedRoleId}/candidates?stage=${selectedStageFilter}` : `${API}/roles/${selectedRoleId}/candidates`;
+  const r = await fetch(url); allCandidates = await r.json();
+  renderCandidates(allCandidates); renderStagePills(allCandidates);
+}
+
+function renderStagePills(candidates) {
+  const counts = {}; candidates.forEach(c => { counts[c.stage] = (counts[c.stage]||0)+1; });
+  const el = document.getElementById('stage-pills');
+  el.innerHTML = `<span class="stage-pill ${!selectedStageFilter?'active':''}" onclick="filterStage(null,this)">All (${candidates.length})</span>`;
+  STAGES.filter(s => counts[s]).forEach(s => {
+    el.innerHTML += `<span class="stage-pill ${selectedStageFilter===s?'active':''}" onclick="filterStage('${s}',this)">${s.replace(/_/g,' ')} (${counts[s]})</span>`;
+  });
+}
+
+function filterStage(stage, el) {
+  selectedStageFilter = stage;
+  document.querySelectorAll('.stage-pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  renderCandidates(stage ? allCandidates.filter(c => c.stage === stage) : allCandidates);
+}
+
+function renderCandidates(candidates) {
+  const el = document.getElementById('candidate-list');
+  if (!candidates.length) { el.innerHTML = '<div class="text-muted" style="padding:30px 0;text-align:center">No candidates in this stage.</div>'; return; }
+  el.innerHTML = candidates.map((c, i) => {
+    const score = c.score || 0;
+    const sc = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--yellow)' : 'var(--red)';
+    const verdict = c.screen_brief?.one_line_verdict || c.screen_brief?.scout_summary || '';
+    return `<div class="candidate-row anim-in" style="animation-delay:${i*0.03}s" onclick="openBrief(${c.id})">
+      <div class="cand-info"><div class="cand-name">${c.name}</div><div class="cand-sub">${verdict || c.github_url || c.email || c.source || ''}</div></div>
+      <span class="badge badge-${c.stage}">${c.stage.replace(/_/g,' ')}</span>
+      <div style="text-align:right"><div class="score-num" style="color:${sc}">${score?Math.round(score):'—'}</div><div class="score-bar"><div class="score-fill" style="width:${score}%;background:${sc}"></div></div></div>
+    </div>`;
+  }).join('');
+}
+
+async function openBrief(candidateId) {
+  const r = await fetch(`${API}/candidates/${candidateId}`); const c = await r.json();
+  document.getElementById('brief-name').textContent = `${c.name} — ${c.score ? Math.round(c.score) : '?'}/100`;
+  const brief = c.screen_brief || {};
+  let html = '';
+  if (brief.one_line_verdict) html += `<div class="verdict-box">"${brief.one_line_verdict}"</div>`;
+  if (brief.hire_recommendation) {
+    const colors = {strong_yes:'var(--green)',yes:'var(--green)',maybe:'var(--yellow)',no:'var(--red)'};
+    const bgs = {strong_yes:'var(--green-dim)',yes:'var(--green-dim)',maybe:'var(--yellow-dim)',no:'var(--red-dim)'};
+    html += `<div class="rec-badge" style="background:${bgs[brief.hire_recommendation]||'var(--blue-dim)'};color:${colors[brief.hire_recommendation]||'var(--blue)'}">${brief.hire_recommendation.replace('_',' ').toUpperCase()}</div>`;
+  }
+  if (brief.strengths?.length) html += section('Strengths', brief.strengths, 'var(--green)');
+  if (brief.concerns?.length) html += section('Concerns', brief.concerns, 'var(--yellow)');
+  if (brief.red_flags?.length) html += section('Red Flags', brief.red_flags, 'var(--red)');
+  if (brief.skill_gaps?.length) html += section('Skill Gaps', brief.skill_gaps, 'var(--muted)');
+  if (brief.suggested_interview_questions?.length) {
+    html += `<div class="brief-section"><h4>Interview Questions</h4>`;
+    brief.suggested_interview_questions.forEach(q => { html += `<div class="q-item">${q}</div>`; });
+    html += '</div>';
+  }
+  if (!html) html = '<div class="text-muted">No brief yet. Run SCREEN on this candidate.</div>';
+  document.getElementById('brief-content').innerHTML = html;
+  document.getElementById('brief-engage-btn').onclick = () => engageOne(c.id, c.email);
+  document.getElementById('brief-modal').classList.remove('hidden');
+}
+
+function section(title, items, color) {
+  return `<div class="brief-section"><h4>${title}</h4><ul>${items.map(i=>`<li style="color:${color}">${i}</li>`).join('')}</ul></div>`;
+}
+
+// ── AGENTS ───────────────────────────────────────────
+async function runScout() {
+  if (!selectedRoleId) { alert('Select a role first'); return; }
+  appendLog({agent:'SCOUT', message:'Starting SCOUT sourcing...'});
+  const btn = document.getElementById('scout-btn');
+  btn.innerHTML = '<span class="spinner"></span> &nbsp;Scouting...'; btn.disabled = true;
+  try {
+    const r = await fetch(`${API}/scout`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role_id:selectedRoleId})});
+    const d = await r.json();
+    appendLog({agent:'SCOUT', message:`SCOUT started for role ${d.role_id}`});
+  } catch(err) { appendLog({agent:'SCOUT', message:err.message}); }
+  finally { setTimeout(() => { btn.innerHTML = '🔍 &nbsp;SCOUT'; btn.disabled = false; }, 1200); }
+}
+
+async function runScreenAll() {
+  if (!selectedRoleId) { alert('Select a role first'); return; }
+  appendLog({agent:'SCREEN', message:'Screening all sourced candidates...'});
+  await fetch(`${API}/screen/role/${selectedRoleId}`, {method:'POST'});
+  setTimeout(refreshCandidates, 3000);
+}
+
+async function runFollowupSweep() {
+  const url = selectedRoleId ? `${API}/engage/followup-sweep?role_id=${selectedRoleId}` : `${API}/engage/followup-sweep`;
+  const r = await fetch(url, {method:'POST'}); const d = await r.json();
+  appendLog({agent:'ENGAGE', message:`Follow-up sweep: ${d.swept} emails sent`});
+}
+
+async function runTrack() {
+  if (!selectedRoleId) { alert('Select a role first'); return; }
+  appendLog({agent:'TRACK', message:'Analyzing pipeline health...'});
+  const r = await fetch(`${API}/track/health/${selectedRoleId}`); const health = await r.json();
+  renderHealthDetail(health); renderHealthSidebar(health);
+  appendLog({agent:'TRACK', message:`Health score: ${health.health_score}/100`});
+}
+
+async function runFullPipeline() {
+  if (!selectedRoleId) { alert('Select a role first'); return; }
+  appendLog({agent:'ORCHESTRATOR', message:'Full pipeline started...'});
+  await fetch(`${API}/pipeline/run?role_id=${selectedRoleId}`, {method:'POST'});
+}
+
+async function engageTop() {
+  if (!selectedRoleId) { alert('Select a role first'); return; }
+  const top = allCandidates.filter(c => (c.score||0) >= 55 && ['sourced','screened','replied'].includes(c.stage) && c.email).slice(0,10);
+  if (!top.length) {
+    const noEmail = allCandidates.filter(c => (c.score||0) >= 55 && !c.email);
+    alert(noEmail.length ? `${noEmail.length} high-scored candidate(s) found but none have emails.\n\nRun SCOUT to discover candidates with public emails.` : 'No candidates ready for outreach. Run SCOUT first.');
+    return;
+  }
+  appendLog({agent:'ENGAGE', message:`Engaging ${top.length} top candidates...`});
+  try {
+    const r = await fetch(`${API}/engage`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({candidate_ids:top.map(c=>c.id)})});
+    const d = await r.json();
+    appendLog({agent:'ENGAGE', message:`Outreach sent to ${d.sent}/${top.length} candidates`});
+    refreshCandidates();
+  } catch(err) { appendLog({agent:'ENGAGE', message:`Error: ${err.message}`}); }
+}
+
+async function engageOne(candidateId, email) {
+  if (!email) { alert('No email available for this candidate.\n\nRun SCOUT to find candidates with public emails.'); return; }
+  const btn = document.getElementById('brief-engage-btn');
+  btn.innerHTML = '<span class="spinner"></span> Sending...'; btn.disabled = true;
+  try {
+    const r = await fetch(`${API}/engage/${candidateId}`, {method:'POST'}); const d = await r.json();
+    if (d.success) { btn.innerHTML = '✓ Sent!'; btn.style.background = 'var(--green)'; btn.style.color = '#000'; setTimeout(() => closeModal('brief-modal'), 1500); }
+    else { btn.innerHTML = '✗ Failed'; btn.style.background = 'var(--red)'; setTimeout(() => { btn.innerHTML = '✉ Send Outreach'; btn.style.background = ''; btn.style.color = ''; btn.disabled = false; }, 2000); }
+    appendLog({agent:'ENGAGE', message:`Email ${d.success?'sent':'failed'} to ${d.candidate}`});
+    refreshCandidates();
+  } catch(err) { btn.innerHTML = '✉ Send Outreach'; btn.disabled = false; }
+}
+
+// ── COORD ────────────────────────────────────────────
+function openCoordModal() {
+  if (!selectedRoleId) { alert('Select a role first'); return; }
+  const sel = document.getElementById('coord-candidate');
+  sel.innerHTML = allCandidates.filter(c => ['replied','screened'].includes(c.stage)).map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  if (!sel.options.length) sel.innerHTML = allCandidates.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('coord-modal').classList.remove('hidden');
+}
+
+async function scheduleInterview() {
+  const candidateId = document.getElementById('coord-candidate').value;
+  const email = document.getElementById('coord-email').value;
+  const duration = document.getElementById('coord-duration').value;
+  if (!email) { alert('Interviewer email required'); return; }
+  const r = await fetch(`${API}/coord/schedule`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({candidate_id:parseInt(candidateId),interviewer_email:email,duration_minutes:parseInt(duration)})});
+  const d = await r.json();
+  document.getElementById('coord-result').innerHTML = d.success ? `<div style="color:var(--green);font-size:13px;margin-top:8px">✓ Interview scheduled: ${new Date(d.slot_start).toLocaleString()}</div>` : `<div style="color:var(--red);font-size:13px">Error: ${d.error||'Unknown'}</div>`;
+  if (d.success) { appendLog({agent:'COORD', message:`Interview booked: ${new Date(d.slot_start).toLocaleString()}`}); refreshCandidates(); }
+}
+
+// ── HEALTH ───────────────────────────────────────────
+async function loadHealthSidebar(roleId) {
+  const r = await fetch(`${API}/track/health/${roleId}`); const h = await r.json();
+  renderHealthSidebar(h);
+}
+
+function renderHealthSidebar(h) {
+  const color = h.health_score >= 70 ? 'var(--green)' : h.health_score >= 40 ? 'var(--yellow)' : 'var(--red)';
+  document.getElementById('health-sidebar').innerHTML = `<div class="health-widget">
+    <div class="health-score" style="color:${color}">${h.health_score}<span style="font-size:14px;color:var(--muted)">/100</span></div>
+    <div class="health-bar-outer"><div class="health-bar-fill" style="width:${h.health_score}%;background:${color}"></div></div>
+    <div class="text-sm text-muted">${h.stale_candidates?.length||0} stale · ${h.total_candidates||0} total</div>
+  </div>`;
+}
+
+function renderHealthDetail(h) {
+  const el = document.getElementById('health-detail');
+  const color = h.health_score >= 70 ? 'var(--green)' : h.health_score >= 40 ? 'var(--yellow)' : 'var(--red)';
+  let html = `<div style="display:flex;align-items:baseline;gap:20px;margin-bottom:20px">
+    <div><div style="font-size:48px;font-weight:800;font-family:'JetBrains Mono',monospace;color:${color}">${h.health_score}</div><div class="text-muted text-sm">/100 health score</div></div>
+    <div style="flex:1"><div class="health-bar-outer" style="height:10px"><div class="health-bar-fill" style="width:${h.health_score}%;background:${color}"></div></div></div></div>`;
+  if (h.stage_breakdown?.length) {
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:20px">';
+    h.stage_breakdown.filter(s => s.count > 0).forEach(s => {
+      html += `<div class="stat-card" style="padding:12px"><div style="font-size:22px;font-weight:800;font-family:'JetBrains Mono',monospace">${s.count}</div><div class="text-sm text-muted">${s.stage.replace(/_/g,' ')}</div></div>`;
+    });
+    html += '</div>';
+  }
+  if (h.insights?.length) {
+    html += '<div style="margin-bottom:16px"><div class="section-label" style="margin:0 0 10px">Insights</div>';
+    h.insights.forEach(i => { html += `<div class="insight">${i}</div>`; });
+    html += '</div>';
+  }
+  if (h.stale_candidates?.length) {
+    html += '<div><div class="section-label" style="margin:0 0 10px">Stale Candidates</div>';
+    h.stale_candidates.forEach(c => {
+      const days = c.last_activity_at ? Math.floor((Date.now() - new Date(c.last_activity_at))/86400000) : '?';
+      html += `<div class="candidate-row"><div class="cand-info"><div class="cand-name">${c.name}</div><div class="cand-sub">${c.stage} · ${days} days idle</div></div><span class="badge badge-stale">stale</span></div>`;
+    });
+    html += '</div>';
+  }
+  el.innerHTML = html;
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===1));
+  document.getElementById('tab-pipeline').classList.add('hidden');
+  document.getElementById('tab-health').classList.remove('hidden');
+  document.getElementById('tab-report').classList.add('hidden');
+}
+
+async function loadReport() {
+  document.getElementById('report-content').innerHTML = '<span class="spinner"></span> Generating report...';
+  const r = await fetch(`${API}/track/report`); const d = await r.json();
+  document.getElementById('report-content').innerHTML = d.report_html || 'No data.';
+}
+
+// ── ROLE CREATION ────────────────────────────────────
+function openNewRoleModal() { document.getElementById('new-role-modal').classList.remove('hidden'); }
+
+async function createRole() {
+  const title = document.getElementById('nr-title').value.trim();
+  const desc = document.getElementById('nr-desc').value.trim();
+  const req = document.getElementById('nr-req').value.trim();
+  if (!title || !desc) { alert('Title and description required'); return; }
+  await fetch(`${API}/roles`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title, description:desc, requirements:req||null})});
+  closeModal('new-role-modal');
+  document.getElementById('nr-title').value=''; document.getElementById('nr-desc').value=''; document.getElementById('nr-req').value='';
+  loadRoles(); loadStats();
+}
+
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['pipeline','health','emails','analytics','report'].forEach(t => {
+    const el2 = document.getElementById(`tab-${t}`);
+    if (el2) el2.classList.toggle('hidden', t!==name);
+  });
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.modal-overlay').forEach(m => m.classList.add('hidden')); });
+
+// ── EMAIL DISCOVERY ──────────────────────────────────
+async function discoverAllEmails() {
+  if (!selectedRoleId) { alert('Select a role first'); return; }
+  const btn = document.getElementById('bulk-email-btn') || document.getElementById('email-disc-btn');
+  if (btn) { btn.innerHTML = '<span class="spinner"></span> Discovering...'; btn.disabled = true; }
+  appendLog({agent:'SCOUT', event:'email_discovery', message:'Starting bulk email discovery...'});
+  try {
+    const r = await fetch(`${API}/roles/${selectedRoleId}/discover-emails`, {method:'POST'});
+    const d = await r.json();
+    appendLog({agent:'SCOUT', event:'discovery_started', message:`Email discovery started for ${d.candidates_without_email} candidates`});
+  } catch(e) {
+    appendLog({agent:'SCOUT', event:'error', message:`Email discovery error: ${e.message}`});
+  }
+  if (btn) { btn.innerHTML = '🔍 Discover All Emails'; btn.disabled = false; }
+}
+
+async function discoverSingleEmail(candidateId, name) {
+  appendLog({agent:'SCOUT', event:'email_discovery', message:`Finding email for ${name}...`});
+  try {
+    const r = await fetch(`${API}/candidates/${candidateId}/discover-email`, {method:'POST'});
+    const d = await r.json();
+    if (d.email) {
+      appendLog({agent:'SCOUT', event:'email_found', message:`✓ ${name}: ${d.email} [${d.confidence}]`});
+      refreshCandidates();
+      loadEmailTab();
+      return d;
+    } else {
+      appendLog({agent:'SCOUT', event:'email_not_found', message:`✗ Could not find email for ${name}`});
+    }
+  } catch(e) {
+    appendLog({agent:'SCOUT', event:'error', message:`Email discovery error: ${e.message}`});
+  }
+  return null;
+}
+
+async function loadEmailTab() {
+  if (!selectedRoleId) return;
+  try {
+    const [cR, sR] = await Promise.all([
+      fetch(`${API}/roles/${selectedRoleId}/candidates`).then(r=>r.json()),
+      fetch(`${API}/roles/${selectedRoleId}/email-stats`).then(r=>r.json())
+    ]);
+    renderEmailStatsBar(sR);
+    renderEmailTable(cR);
+  } catch(e) {
+    document.getElementById('email-table-container').innerHTML = `<div class="text-muted text-sm">Error loading data.</div>`;
+  }
+}
+
+function renderEmailStatsBar(stats) {
+  const el = document.getElementById('email-stats-bar');
+  if (!el) return;
+  const pct = stats.coverage_percent || 0;
+  const color = pct >= 70 ? 'var(--green)' : pct >= 40 ? 'var(--yellow)' : 'var(--red)';
+  el.innerHTML = `
+    <div class="stat-card"><div class="stat-value" style="font-size:24px;color:${color}">${pct}%</div><div class="stat-label">Email Coverage</div></div>
+    <div class="stat-card"><div class="stat-value" style="font-size:24px;color:var(--green)">${stats.with_email||0}</div><div class="stat-label">Emails Found</div></div>
+    <div class="stat-card"><div class="stat-value" style="font-size:24px;color:var(--red)">${stats.without_email||0}</div><div class="stat-label">Missing Email</div></div>
+    <div class="stat-card"><div class="stat-value" style="font-size:24px">${stats.total_candidates||0}</div><div class="stat-label">Total Candidates</div></div>`;
+}
+
+function renderEmailTable(candidates) {
+  const el = document.getElementById('email-table-container');
+  if (!el) return;
+  if (!candidates || !candidates.length) {
+    el.innerHTML = '<div class="text-muted text-sm">No candidates yet. Run SCOUT first.</div>';
+    return;
+  }
+  const confColor = {verified:'var(--green)', high:'var(--green)', medium:'var(--yellow)', low:'#f97316', not_found:'var(--red)'};
+  const confIcon = {verified:'✓✓', high:'✓', medium:'~', low:'?', not_found:'✗'};
+  el.innerHTML = `<table style="width:100%;border-collapse:collapse">
+    <thead><tr style="border-bottom:1px solid var(--border);text-align:left">
+      <th style="padding:8px 12px;font-size:11px;color:var(--muted);font-weight:600">CANDIDATE</th>
+      <th style="padding:8px 12px;font-size:11px;color:var(--muted);font-weight:600">EMAIL</th>
+      <th style="padding:8px 12px;font-size:11px;color:var(--muted);font-weight:600">CONFIDENCE</th>
+      <th style="padding:8px 12px;font-size:11px;color:var(--muted);font-weight:600">SOURCE</th>
+      <th style="padding:8px 12px;font-size:11px;color:var(--muted);font-weight:600">ACTION</th>
+    </tr></thead>
+    <tbody>
+    ${candidates.map(c => {
+      const brief = c.screen_brief || {};
+      const ed = brief.email_discovery || {};
+      const conf = ed.confidence || (c.email ? 'high' : 'not_found');
+      const src = ed.source || (c.email ? 'github_profile' : '—');
+      const cc = confColor[conf] || 'var(--muted)';
+      const ci = confIcon[conf] || '?';
+      return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
+        <td style="padding:10px 12px"><div style="font-weight:600;font-size:13px">${c.name}</div><div style="font-size:11px;color:var(--muted)">${c.source||''}</div></td>
+        <td style="padding:10px 12px"><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${c.email?'var(--text)':'var(--muted)'}">${c.email||'—'}</div></td>
+        <td style="padding:10px 12px"><span style="color:${cc};font-weight:700;font-size:12px">${ci} ${conf}</span></td>
+        <td style="padding:10px 12px"><span style="font-size:11px;color:var(--muted)">${src.replace(/_/g,' ')}</span></td>
+        <td style="padding:10px 12px">${!c.email ? `<button onclick="discoverSingleEmail(${c.id},'${c.name.replace(/'/g,"\'")}'); this.disabled=true; this.textContent='Finding...'" style="background:rgba(124,58,237,0.15);border:1px solid rgba(124,58,237,0.3);color:var(--accent-light);padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">Find Email</button>` : `<span style="color:var(--green);font-size:11px">✓ Found</span>`}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`;
+}
+
+// ── ANALYTICS ─────────────────────────────────────────
+async function loadAnalytics() {
+  if (!selectedRoleId) return;
+  const el = document.getElementById('analytics-content');
+  el.innerHTML = '<div class="text-muted text-sm">Loading analytics...</div>';
+  try {
+    const r = await fetch(`${API}/analytics/funnel/${selectedRoleId}`);
+    const d = await r.json();
+    renderAnalytics(d);
+  } catch(e) {
+    el.innerHTML = '<div class="text-muted text-sm">Error loading analytics.</div>';
+  }
+}
+
+function renderAnalytics(d) {
+  const el = document.getElementById('analytics-content');
+  if (!el) return;
+  const maxCount = Math.max(...d.funnel.map(f => f.count), 1);
+  const stageColors = {sourced:'#8b5cf6',screened:'#06b6d4',outreach_sent:'#f59e0b',replied:'#34d399',interview_scheduled:'#10b981',interviewed:'#60a5fa',offer:'#a78bfa',hired:'#34d399'};
+  let html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+    <div class="stat-card"><div class="stat-value">${d.total}</div><div class="stat-label">Total Candidates</div></div>
+    <div class="stat-card"><div class="stat-value">${d.avg_score}</div><div class="stat-label">Avg Score</div></div>
+  </div>
+  <div style="margin-bottom:24px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:14px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Conversion Funnel</div>
+    ${d.funnel.filter(f=>f.count>0).map(f => {
+      const barW = Math.max(4, Math.round(f.count/maxCount*100));
+      const color = stageColors[f.stage] || 'var(--accent)';
+      return `<div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
+        <div style="width:140px;font-size:12px;color:var(--muted);text-align:right;text-transform:capitalize">${f.stage.replace(/_/g,' ')}</div>
+        <div style="flex:1;background:rgba(255,255,255,0.04);border-radius:4px;height:28px;overflow:hidden;position:relative">
+          <div style="width:${barW}%;height:100%;background:${color};opacity:0.7;border-radius:4px;transition:width .8s cubic-bezier(.4,0,.2,1)"></div>
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:12px;font-weight:600;color:#fff">${f.count}</span>
+        </div>
+        <div style="width:50px;font-size:11px;color:var(--muted);text-align:right">${f.conversion_rate}%</div>
+      </div>`;
+    }).join('')}
+  </div>
+  <div style="margin-bottom:20px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Source Breakdown</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${Object.entries(d.source_breakdown||{}).map(([src,cnt]) =>
+        `<div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);padding:8px 14px;border-radius:8px"><div style="font-weight:700;font-size:16px">${cnt}</div><div style="font-size:11px;color:var(--muted)">${src}</div></div>`
+      ).join('')}
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="stat-card"><div class="stat-value" style="font-size:22px">${d.email_coverage}%</div><div class="stat-label">Email Coverage</div></div>
+    <div class="stat-card" style="cursor:pointer" onclick="exportCSV()"><div style="font-size:22px;font-weight:700;background:var(--gradient-1);-webkit-background-clip:text;-webkit-text-fill-color:transparent">⬇</div><div class="stat-label">Export CSV</div></div>
+  </div>`;
+  el.innerHTML = html;
+}
+
+// ── EXPORT ────────────────────────────────────────────
+function exportCSV() {
+  if (!selectedRoleId) { alert('Select a role first'); return; }
+  window.open(`${API}/roles/${selectedRoleId}/export/csv`, '_blank');
+  appendLog({agent:'SYSTEM', event:'export', message:'Exporting candidates to CSV...'});
+}
+
+function exportJSON() {
+  if (!selectedRoleId) { alert('Select a role first'); return; }
+  window.open(`${API}/roles/${selectedRoleId}/export/json`, '_blank');
+}
+
+// ── DOMAIN SEARCH ─────────────────────────────────────
+function openDomainSearchModal() {
+  document.getElementById('domain-modal').classList.remove('hidden');
+  document.getElementById('domain-results').innerHTML = '';
+}
+
+async function runDomainSearch() {
+  const domain = document.getElementById('domain-input').value.trim();
+  if (!domain) { alert('Enter a domain'); return; }
+  document.getElementById('domain-results').innerHTML = '<div class="text-muted text-sm"><span class="spinner"></span> Searching Hunter.io...</div>';
+  try {
+    const r = await fetch(`${API}/email/domain-search?domain=${encodeURIComponent(domain)}&max_results=10`, {method:'POST'});
+    const d = await r.json();
+    if (!d.emails || !d.emails.length) {
+      document.getElementById('domain-results').innerHTML = '<div class="text-muted text-sm">No emails found. Make sure HUNTER_API_KEY is set.</div>';
+      return;
+    }
+    document.getElementById('domain-results').innerHTML = `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">${d.count} emails found at ${domain}</div>
+      ${d.emails.map(e => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-size:13px;font-weight:600">${e.first||''} ${e.last||''}</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-light)">${e.email}</div>
+          </div>
+          <span style="font-size:11px;color:${e.confidence>=80?'var(--green)':'var(--yellow)'}">confidence: ${e.confidence}%</span>
+        </div>`).join('')}`;
+  } catch(e) {
+    document.getElementById('domain-results').innerHTML = `<div class="text-muted text-sm">Error: ${e.message}</div>`;
+  }
+}
+
+// ── ENHANCED BRIEF MODAL (add email discovery button) ─────────────────────
+const _origOpenBrief = openBrief;
+openBrief = async function(candidateId) {
+  await _origOpenBrief(candidateId);
+  const btn = document.getElementById('brief-email-disc-btn');
+  if (btn) {
+    btn.onclick = async () => {
+      const r = await fetch(`${API}/candidates/${candidateId}`).then(r=>r.json());
+      btn.innerHTML = '<span class="spinner"></span>';
+      btn.disabled = true;
+      await discoverSingleEmail(candidateId, r.name);
+      btn.innerHTML = '🔍 Find Email';
+      btn.disabled = false;
+      // refresh brief modal
+      await _origOpenBrief(candidateId);
+    };
+  }
+};
+
+// ── EMAIL CONFIDENCE BADGE IN CANDIDATE ROW ───────────────────────────────
+const _origRenderCandidates = renderCandidates;
+renderCandidates = function(candidates) {
+  _origRenderCandidates(candidates);
+  // Patch each row to show email indicator
+  const rows = document.querySelectorAll('#candidate-list .candidate-row');
+  candidates.forEach((c, i) => {
+    if (!rows[i]) return;
+    const sub = rows[i].querySelector('.cand-sub');
+    if (sub) {
+      const emailIndicator = c.email
+        ? `<span style="color:var(--green);font-size:10px;margin-left:6px">✉ ${c.email}</span>`
+        : `<span style="color:var(--red);font-size:10px;margin-left:6px">✉ no email</span>`;
+      sub.innerHTML = sub.innerHTML + emailIndicator;
+    }
+  });
+};
+
+// ── ENHANCED STATS (email coverage) ──────────────────
+const _origLoadStats = loadStats;
+loadStats = async function() {
+  await _origLoadStats();
+  try {
+    const r = await fetch(`${API}/stats`);
+    const d = await r.json();
+    const el = document.getElementById('s-emails');
+    if (el) el.textContent = d.total_with_email || 0;
+  } catch(e) {}
+};
+
+// ── SWITCH TAB - extended ─────────────────────────────
+const _origSwitchTab = switchTab;
+switchTab = function(name, el) {
+  _origSwitchTab(name, el);
+  if (name === 'emails') loadEmailTab();
+  if (name === 'analytics') loadAnalytics();
+};
+
+// ── SSE: handle email discovery events ───────────────
+const _origConnectSSE = connectSSE;
+connectSSE = function() {
+  _origConnectSSE();
+};
+
+// Patch SSE handler to handle new events
+const origOnMessage = sseSource ? sseSource.onmessage : null;
+// We override after SSE connects — patch appendLog to handle new event types
+const _origAppendLog = appendLog;
+appendLog = function(d) {
+  _origAppendLog(d);
+  if (d.event === 'email_found' || d.event === 'bulk_email_complete') {
+    refreshCandidates();
+    loadStats();
+    if (document.getElementById('tab-emails') && !document.getElementById('tab-emails').classList.contains('hidden')) {
+      loadEmailTab();
+    }
+  }
+};
+
+// ── INIT ─────────────────────────────────────────────
+connectSSE(); loadRoles(); loadStats();
+setInterval(loadStats, 15000); setInterval(loadRoles, 10000);
+fetch(`${API}/logs?limit=50`).then(r=>r.json()).then(logs => { logs.reverse().forEach(l => appendLog({agent:l.agent, event:l.event_type, message:l.message})); }).catch(()=>{});
+</script>
+
+<script>
+// ── INTERACTIVE PARTICLE BACKGROUND ──────────────────
+(function() {
+  const canvas = document.getElementById('particle-canvas');
+  if (!canvas) return;
+  Object.assign(canvas.style, { position:'fixed', top:'0', left:'0', width:'100%', height:'100%', zIndex:'0', pointerEvents:'none', background:'#06060b' });
+
+  const ctx = canvas.getContext('2d', { alpha: false });
+  let raf, W = window.innerWidth, H = window.innerHeight;
+  canvas.width = W; canvas.height = H;
+
+  const mouse = { x: W/2, y: H/2, radius: 250, hover: false };
+  const trail = { x: W/2, y: H/2 };
+  const ripple = { active: false, x:0, y:0, r:0, max:800, speed:20 };
+
+  document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.hover = true; });
+  document.addEventListener('mouseleave', () => { mouse.hover = false; });
+  document.addEventListener('click', e => { ripple.active = true; ripple.x = e.clientX; ripple.y = e.clientY; ripple.r = 0; });
+  window.addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; canvas.width = W; canvas.height = H; init(); });
+
+  class P {
+    constructor(x, y, z) {
+      this.x = x; this.y = y; this.z = z;
+      this.bs = (Math.random()*1.5+0.5)*z; this.s = this.bs;
+      this.vx = (Math.random()-0.5)*0.8*z; this.vy = (Math.random()-0.5)*0.8*z;
+      this.ps = Math.random()*Math.PI*2; this.pp = Math.random()*0.02+0.01;
+    }
+    draw() {
+      const pulse = Math.sin(this.ps)*0.5+0.5; this.ps += this.pp;
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.s+(pulse*2*this.z), 0, Math.PI*2);
+      ctx.fillStyle = `rgba(255,255,255,${0.1*this.z})`; ctx.fill();
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.s, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(255,255,255,${0.4+0.6*this.z})`; ctx.fill();
+    }
+    update() {
+      this.x += this.vx; this.y += this.vy;
+      if (this.x > W+50) this.x = -50; if (this.x < -50) this.x = W+50;
+      if (this.y > H+50) this.y = -50; if (this.y < -50) this.y = H+50;
+      if (mouse.hover) {
+        let dx = mouse.x-this.x, dy = mouse.y-this.y, d = Math.sqrt(dx*dx+dy*dy);
+        if (d < mouse.radius && d > 0) {
+          let f = (mouse.radius-d)/mouse.radius;
+          let px = (dx/d)*f*1.5*this.z, py = (dy/d)*f*1.5*this.z;
+          let sx = -(dy/d)*f*8.0*this.z, sy = (dx/d)*f*8.0*this.z;
+          this.x -= (px+sx); this.y -= (py-sy);
+        }
+      }
+      if (ripple.active) {
+        let rdx = this.x-ripple.x, rdy = this.y-ripple.y, rd = Math.sqrt(rdx*rdx+rdy*rdy);
+        if (Math.abs(rd-ripple.r) < 40 && rd > 0) {
+          let bf = (ripple.max-ripple.r)/ripple.max;
+          this.x += (rdx/rd)*bf*15*this.z; this.y += (rdy/rd)*bf*15*this.z;
+          this.s = this.bs*2.5;
+        }
+      }
+      if (this.s > this.bs) this.s -= 0.05;
+      this.draw();
+    }
+  }
+
+  let pts = [];
+  function init() {
+    pts = []; const n = Math.floor((W*H)/9000);
+    for (let i = 0; i < n; i++) {
+      let z = Math.random(); z = z < 0.33 ? 0.3 : z < 0.66 ? 0.6 : 1.0;
+      pts.push(new P(Math.random()*W, Math.random()*H, z));
+    }
+  }
+
+  function connect() {
+    for (let a = 0; a < pts.length; a++) {
+      for (let b = a+1; b < pts.length; b++) {
+        let pA = pts[a], pB = pts[b];
+        if (Math.abs(pA.z-pB.z) > 0.1) continue;
+        let dx = pA.x-pB.x, dy = pA.y-pB.y, d = Math.sqrt(dx*dx+dy*dy), mx = 120*pA.z;
+        if (d < mx) {
+          let o = 1-(d/mx);
+          let g = ctx.createLinearGradient(pA.x,pA.y,pB.x,pB.y);
+          g.addColorStop(0, `rgba(255,255,255,${o*0.3*pA.z})`);
+          g.addColorStop(1, `rgba(255,255,255,${o*0.3*pB.z})`);
+          ctx.strokeStyle = g; ctx.lineWidth = pA.z;
+          ctx.beginPath(); ctx.moveTo(pA.x,pA.y); ctx.lineTo(pB.x,pB.y); ctx.stroke();
+        }
+      }
+      if (mouse.hover) {
+        let p = pts[a], dx = p.x-mouse.x, dy = p.y-mouse.y, d = Math.sqrt(dx*dx+dy*dy), sd = 180*p.z;
+        if (d < sd) {
+          let o = 1-(d/sd);
+          ctx.strokeStyle = `rgba(255,255,255,${o*0.5*p.z})`; ctx.lineWidth = 1.5*p.z;
+          ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(mouse.x,mouse.y); ctx.stroke();
+        }
+      }
+    }
+  }
+
+  function loop() {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0,0,W,H);
+    ctx.globalCompositeOperation = 'lighter';
+    if (mouse.hover) { trail.x += (mouse.x-trail.x)*0.08; trail.y += (mouse.y-trail.y)*0.08; }
+    let g = ctx.createRadialGradient(trail.x,trail.y,0,trail.x,trail.y,800);
+    g.addColorStop(0,'rgba(99,102,241,0.04)'); g.addColorStop(0.2,'rgba(255,255,255,0.02)');
+    g.addColorStop(0.5,'rgba(99,102,241,0.005)'); g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+    if (ripple.active) {
+      ripple.r += ripple.speed;
+      ctx.beginPath(); ctx.arc(ripple.x,ripple.y,ripple.r,0,Math.PI*2);
+      ctx.strokeStyle = `rgba(255,255,255,${(1-ripple.r/ripple.max)*0.25})`; ctx.lineWidth = 3; ctx.stroke();
+      if (ripple.r > ripple.max) ripple.active = false;
+    }
+    pts.forEach(p => p.update()); connect();
+    ctx.globalCompositeOperation = 'source-over';
+    raf = requestAnimationFrame(loop);
+  }
+
+  init(); loop();
+})();
+</script>
+</body>
+</html>

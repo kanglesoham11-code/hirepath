@@ -1,0 +1,36 @@
+# Core
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# Database
+sqlalchemy==2.0.35
+asyncpg==0.30.0
+alembic==1.13.3
+
+# HTTP client
+httpx==0.27.2
+
+# Scheduling
+apscheduler==3.10.4
+
+# PDF parsing
+PyMuPDF==1.24.11
+
+# Vector DB
+chromadb==0.5.20
+
+# Email verification (SMTP MX lookup)
+dnspython==2.7.0
+
+# Google APIs (Calendar)
+google-auth==2.35.0
+google-auth-oauthlib==1.2.1
+google-api-python-client==2.149.0
+
+# LangGraph (orchestrator)
+langgraph==0.2.38
+
+# Dev
+python-multipart==0.0.12
