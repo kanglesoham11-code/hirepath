@@ -410,7 +410,7 @@ const observer = new MutationObserver(() => {
 observer.observe(document.body, { childList: true, subtree: true });
 
 // ── APP LOGIC ────────────────────────────────────────
-const API = 'http://localhost:8000/api';
+const API = 'https://hirepath-6dmb.onrender.com/api';
 let selectedRoleId = null, selectedStageFilter = null, allCandidates = [], sseSource = null;
 
 function connectSSE() {
