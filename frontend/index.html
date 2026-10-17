@@ -223,11 +223,10 @@ textarea.input { resize: vertical; min-height: 90px; }
 
     <div class="section-label">Run Agents</div>
     <div style="display:flex;flex-direction:column;gap:6px">
-      <button class="agent-btn" onclick="runScout()" id="scout-btn">🔍 &nbsp;SCOUT</button>
+      <button class="agent-btn" onclick="runScout()" id="scout-btn">🔍 &nbsp;SCOUT <span style="font-size:10px;opacity:0.7;margin-left:4px">📍Maharashtra</span></button>
       <button class="agent-btn" onclick="runScreenAll()" id="screen-btn">📋 &nbsp;SCREEN All</button>
       <button class="agent-btn" onclick="runFollowupSweep()">📬 &nbsp;Follow-up Sweep</button>
       <button class="agent-btn" onclick="runTrack()">📊 &nbsp;TRACK</button>
-      <button class="agent-btn" onclick="discoverAllEmails()">📧 &nbsp;Discover Emails</button>
       <button class="agent-btn primary" onclick="runFullPipeline()">▶ &nbsp;Run Full Pipeline</button>
     </div>
 
@@ -242,8 +241,6 @@ textarea.input { resize: vertical; min-height: 90px; }
     <div class="tab-bar">
       <div class="tab active" onclick="switchTab('pipeline',this)">Pipeline</div>
       <div class="tab" onclick="switchTab('health',this)">Health</div>
-      <div class="tab" onclick="switchTab('emails',this)">📧 Emails</div>
-      <div class="tab" onclick="switchTab('analytics',this)">📊 Analytics</div>
       <div class="tab" onclick="switchTab('report',this)">Report</div>
     </div>
 
@@ -261,9 +258,7 @@ textarea.input { resize: vertical; min-height: 90px; }
           <div class="pipeline-title" id="pipeline-role-title"></div>
           <div class="action-btns">
             <button class="action-btn" onclick="engageTop()">✉ Engage Top</button>
-            <button class="action-btn" onclick="discoverAllEmails()" id="email-disc-btn">🔍 Find Emails</button>
             <button class="action-btn" onclick="openCoordModal()">📅 Schedule</button>
-            <button class="action-btn" onclick="exportCSV()">⬇ CSV</button>
           </div>
         </div>
         <div class="stage-pills" id="stage-pills"></div>
@@ -278,31 +273,6 @@ textarea.input { resize: vertical; min-height: 90px; }
     <div id="tab-report" class="hidden">
       <button class="btn btn-primary" onclick="loadReport()" style="margin-bottom:20px">Generate Weekly Report</button>
       <div id="report-content" class="text-muted text-sm">Click above to generate.</div>
-    </div>
-
-    <div id="tab-emails" class="hidden">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
-        <div>
-          <div style="font-size:18px;font-weight:700;margin-bottom:4px">Email Discovery</div>
-          <div class="text-muted text-sm">Multi-source email finder: GitHub profile → commit history → Hunter.io → SMTP verification</div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="discoverAllEmails()" id="bulk-email-btn">🔍 Discover All Emails</button>
-          <button class="btn btn-ghost" onclick="openDomainSearchModal()">🏢 Domain Search</button>
-          <button class="btn btn-ghost" onclick="exportCSV()">⬇ Export CSV</button>
-        </div>
-      </div>
-      <div id="email-stats-bar" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
-      <div id="email-table-container">
-        <div class="text-muted text-sm">Select a role to see email discovery status.</div>
-      </div>
-    </div>
-
-    <div id="tab-analytics" class="hidden">
-      <div style="font-size:18px;font-weight:700;margin-bottom:20px">Pipeline Analytics</div>
-      <div id="analytics-content">
-        <div class="text-muted text-sm">Select a role to view analytics.</div>
-      </div>
     </div>
   </div>
 
@@ -349,25 +319,8 @@ textarea.input { resize: vertical; min-height: 90px; }
     <div id="brief-content"></div>
     <div class="btn-row">
       <button class="btn btn-primary" id="brief-engage-btn">✉ Send Outreach</button>
-      <button class="btn btn-ghost" id="brief-email-disc-btn">🔍 Find Email</button>
       <button class="btn btn-ghost" onclick="closeModal('brief-modal')">Close</button>
     </div>
-  </div>
-</div>
-
-<!-- Domain Search Modal -->
-<div id="domain-modal" class="modal-overlay hidden">
-  <div class="modal-box" style="width:540px">
-    <div class="modal-title">🏢 Company Domain Email Search</div>
-    <div class="form-group">
-      <div class="label">Company Domain</div>
-      <input id="domain-input" class="input" placeholder="e.g. google.com, stripe.com"/>
-    </div>
-    <div class="btn-row">
-      <button class="btn btn-primary" onclick="runDomainSearch()">Search Emails</button>
-      <button class="btn btn-ghost" onclick="closeModal('domain-modal')">Cancel</button>
-    </div>
-    <div id="domain-results" style="margin-top:16px"></div>
   </div>
 </div>
 
@@ -410,7 +363,7 @@ const observer = new MutationObserver(() => {
 observer.observe(document.body, { childList: true, subtree: true });
 
 // ── APP LOGIC ────────────────────────────────────────
-const API = 'https://hirepath-6dmb.onrender.com/api';
+const API = 'http://localhost:8000/api';
 let selectedRoleId = null, selectedStageFilter = null, allCandidates = [], sseSource = null;
 
 function connectSSE() {
@@ -508,8 +461,11 @@ function renderCandidates(candidates) {
     const score = c.score || 0;
     const sc = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--yellow)' : 'var(--red)';
     const verdict = c.screen_brief?.one_line_verdict || c.screen_brief?.scout_summary || '';
+    const location = c.screen_brief?.location || c.raw_data?.location || '';
+    const locBadge = location ? `<span style="font-size:10px;color:var(--muted);margin-left:6px">📍${location}</span>` : '';
+    const sourceTag = c.source ? `<span style="font-size:9px;background:rgba(124,58,237,0.15);color:#a78bfa;padding:1px 6px;border-radius:8px;margin-left:4px">${c.source.replace(/_/g,' ')}</span>` : '';
     return `<div class="candidate-row anim-in" style="animation-delay:${i*0.03}s" onclick="openBrief(${c.id})">
-      <div class="cand-info"><div class="cand-name">${c.name}</div><div class="cand-sub">${verdict || c.github_url || c.email || c.source || ''}</div></div>
+      <div class="cand-info"><div class="cand-name">${c.name}${locBadge}</div><div class="cand-sub">${verdict || c.github_url || c.email || ''}${sourceTag}</div></div>
       <span class="badge badge-${c.stage}">${c.stage.replace(/_/g,' ')}</span>
       <div style="text-align:right"><div class="score-num" style="color:${sc}">${score?Math.round(score):'—'}</div><div class="score-bar"><div class="score-fill" style="width:${score}%;background:${sc}"></div></div></div>
     </div>`;
@@ -549,15 +505,24 @@ function section(title, items, color) {
 // ── AGENTS ───────────────────────────────────────────
 async function runScout() {
   if (!selectedRoleId) { alert('Select a role first'); return; }
-  appendLog({agent:'SCOUT', message:'Starting SCOUT sourcing...'});
+  appendLog({agent:'SCOUT', message:'🔍 Starting LIVE SCOUT sourcing in Maharashtra...'});
+  appendLog({agent:'SCOUT', message:'📍 Location filter: Maharashtra, India — GitHub + StackOverflow'});
   const btn = document.getElementById('scout-btn');
-  btn.innerHTML = '<span class="spinner"></span> &nbsp;Scouting...'; btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> &nbsp;Scouting Maharashtra...'; btn.disabled = true;
   try {
     const r = await fetch(`${API}/scout`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role_id:selectedRoleId})});
     const d = await r.json();
-    appendLog({agent:'SCOUT', message:`SCOUT started for role ${d.role_id}`});
+    appendLog({agent:'SCOUT', message:`SCOUT started — scraping live from GitHub/StackOverflow for role ${d.role_id}`});
+    // Poll for new candidates every 5 seconds while scouting
+    let pollCount = 0;
+    const pollInterval = setInterval(async () => {
+      pollCount++;
+      await refreshCandidates();
+      if (pollCount >= 24) clearInterval(pollInterval); // stop after 2 minutes
+    }, 5000);
+    setTimeout(() => clearInterval(pollInterval), 120000);
   } catch(err) { appendLog({agent:'SCOUT', message:err.message}); }
-  finally { setTimeout(() => { btn.innerHTML = '🔍 &nbsp;SCOUT'; btn.disabled = false; }, 1200); }
+  finally { setTimeout(() => { btn.innerHTML = '🔍 &nbsp;SCOUT <span style="font-size:10px;opacity:0.7;margin-left:4px">📍Maharashtra</span>'; btn.disabled = false; refreshCandidates(); }, 3000); }
 }
 
 async function runScreenAll() {
@@ -709,285 +674,10 @@ function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function switchTab(name, el) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  ['pipeline','health','emails','analytics','report'].forEach(t => {
-    const el2 = document.getElementById(`tab-${t}`);
-    if (el2) el2.classList.toggle('hidden', t!==name);
-  });
+  ['pipeline','health','report'].forEach(t => document.getElementById(`tab-${t}`).classList.toggle('hidden', t!==name));
 }
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.modal-overlay').forEach(m => m.classList.add('hidden')); });
-
-// ── EMAIL DISCOVERY ──────────────────────────────────
-async function discoverAllEmails() {
-  if (!selectedRoleId) { alert('Select a role first'); return; }
-  const btn = document.getElementById('bulk-email-btn') || document.getElementById('email-disc-btn');
-  if (btn) { btn.innerHTML = '<span class="spinner"></span> Discovering...'; btn.disabled = true; }
-  appendLog({agent:'SCOUT', event:'email_discovery', message:'Starting bulk email discovery...'});
-  try {
-    const r = await fetch(`${API}/roles/${selectedRoleId}/discover-emails`, {method:'POST'});
-    const d = await r.json();
-    appendLog({agent:'SCOUT', event:'discovery_started', message:`Email discovery started for ${d.candidates_without_email} candidates`});
-  } catch(e) {
-    appendLog({agent:'SCOUT', event:'error', message:`Email discovery error: ${e.message}`});
-  }
-  if (btn) { btn.innerHTML = '🔍 Discover All Emails'; btn.disabled = false; }
-}
-
-async function discoverSingleEmail(candidateId, name) {
-  appendLog({agent:'SCOUT', event:'email_discovery', message:`Finding email for ${name}...`});
-  try {
-    const r = await fetch(`${API}/candidates/${candidateId}/discover-email`, {method:'POST'});
-    const d = await r.json();
-    if (d.email) {
-      appendLog({agent:'SCOUT', event:'email_found', message:`✓ ${name}: ${d.email} [${d.confidence}]`});
-      refreshCandidates();
-      loadEmailTab();
-      return d;
-    } else {
-      appendLog({agent:'SCOUT', event:'email_not_found', message:`✗ Could not find email for ${name}`});
-    }
-  } catch(e) {
-    appendLog({agent:'SCOUT', event:'error', message:`Email discovery error: ${e.message}`});
-  }
-  return null;
-}
-
-async function loadEmailTab() {
-  if (!selectedRoleId) return;
-  try {
-    const [cR, sR] = await Promise.all([
-      fetch(`${API}/roles/${selectedRoleId}/candidates`).then(r=>r.json()),
-      fetch(`${API}/roles/${selectedRoleId}/email-stats`).then(r=>r.json())
-    ]);
-    renderEmailStatsBar(sR);
-    renderEmailTable(cR);
-  } catch(e) {
-    document.getElementById('email-table-container').innerHTML = `<div class="text-muted text-sm">Error loading data.</div>`;
-  }
-}
-
-function renderEmailStatsBar(stats) {
-  const el = document.getElementById('email-stats-bar');
-  if (!el) return;
-  const pct = stats.coverage_percent || 0;
-  const color = pct >= 70 ? 'var(--green)' : pct >= 40 ? 'var(--yellow)' : 'var(--red)';
-  el.innerHTML = `
-    <div class="stat-card"><div class="stat-value" style="font-size:24px;color:${color}">${pct}%</div><div class="stat-label">Email Coverage</div></div>
-    <div class="stat-card"><div class="stat-value" style="font-size:24px;color:var(--green)">${stats.with_email||0}</div><div class="stat-label">Emails Found</div></div>
-    <div class="stat-card"><div class="stat-value" style="font-size:24px;color:var(--red)">${stats.without_email||0}</div><div class="stat-label">Missing Email</div></div>
-    <div class="stat-card"><div class="stat-value" style="font-size:24px">${stats.total_candidates||0}</div><div class="stat-label">Total Candidates</div></div>`;
-}
-
-function renderEmailTable(candidates) {
-  const el = document.getElementById('email-table-container');
-  if (!el) return;
-  if (!candidates || !candidates.length) {
-    el.innerHTML = '<div class="text-muted text-sm">No candidates yet. Run SCOUT first.</div>';
-    return;
-  }
-  const confColor = {verified:'var(--green)', high:'var(--green)', medium:'var(--yellow)', low:'#f97316', not_found:'var(--red)'};
-  const confIcon = {verified:'✓✓', high:'✓', medium:'~', low:'?', not_found:'✗'};
-  el.innerHTML = `<table style="width:100%;border-collapse:collapse">
-    <thead><tr style="border-bottom:1px solid var(--border);text-align:left">
-      <th style="padding:8px 12px;font-size:11px;color:var(--muted);font-weight:600">CANDIDATE</th>
-      <th style="padding:8px 12px;font-size:11px;color:var(--muted);font-weight:600">EMAIL</th>
-      <th style="padding:8px 12px;font-size:11px;color:var(--muted);font-weight:600">CONFIDENCE</th>
-      <th style="padding:8px 12px;font-size:11px;color:var(--muted);font-weight:600">SOURCE</th>
-      <th style="padding:8px 12px;font-size:11px;color:var(--muted);font-weight:600">ACTION</th>
-    </tr></thead>
-    <tbody>
-    ${candidates.map(c => {
-      const brief = c.screen_brief || {};
-      const ed = brief.email_discovery || {};
-      const conf = ed.confidence || (c.email ? 'high' : 'not_found');
-      const src = ed.source || (c.email ? 'github_profile' : '—');
-      const cc = confColor[conf] || 'var(--muted)';
-      const ci = confIcon[conf] || '?';
-      return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
-        <td style="padding:10px 12px"><div style="font-weight:600;font-size:13px">${c.name}</div><div style="font-size:11px;color:var(--muted)">${c.source||''}</div></td>
-        <td style="padding:10px 12px"><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${c.email?'var(--text)':'var(--muted)'}">${c.email||'—'}</div></td>
-        <td style="padding:10px 12px"><span style="color:${cc};font-weight:700;font-size:12px">${ci} ${conf}</span></td>
-        <td style="padding:10px 12px"><span style="font-size:11px;color:var(--muted)">${src.replace(/_/g,' ')}</span></td>
-        <td style="padding:10px 12px">${!c.email ? `<button onclick="discoverSingleEmail(${c.id},'${c.name.replace(/'/g,"\'")}'); this.disabled=true; this.textContent='Finding...'" style="background:rgba(124,58,237,0.15);border:1px solid rgba(124,58,237,0.3);color:var(--accent-light);padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">Find Email</button>` : `<span style="color:var(--green);font-size:11px">✓ Found</span>`}</td>
-      </tr>`;
-    }).join('')}
-    </tbody></table>`;
-}
-
-// ── ANALYTICS ─────────────────────────────────────────
-async function loadAnalytics() {
-  if (!selectedRoleId) return;
-  const el = document.getElementById('analytics-content');
-  el.innerHTML = '<div class="text-muted text-sm">Loading analytics...</div>';
-  try {
-    const r = await fetch(`${API}/analytics/funnel/${selectedRoleId}`);
-    const d = await r.json();
-    renderAnalytics(d);
-  } catch(e) {
-    el.innerHTML = '<div class="text-muted text-sm">Error loading analytics.</div>';
-  }
-}
-
-function renderAnalytics(d) {
-  const el = document.getElementById('analytics-content');
-  if (!el) return;
-  const maxCount = Math.max(...d.funnel.map(f => f.count), 1);
-  const stageColors = {sourced:'#8b5cf6',screened:'#06b6d4',outreach_sent:'#f59e0b',replied:'#34d399',interview_scheduled:'#10b981',interviewed:'#60a5fa',offer:'#a78bfa',hired:'#34d399'};
-  let html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
-    <div class="stat-card"><div class="stat-value">${d.total}</div><div class="stat-label">Total Candidates</div></div>
-    <div class="stat-card"><div class="stat-value">${d.avg_score}</div><div class="stat-label">Avg Score</div></div>
-  </div>
-  <div style="margin-bottom:24px">
-    <div style="font-size:13px;font-weight:600;margin-bottom:14px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Conversion Funnel</div>
-    ${d.funnel.filter(f=>f.count>0).map(f => {
-      const barW = Math.max(4, Math.round(f.count/maxCount*100));
-      const color = stageColors[f.stage] || 'var(--accent)';
-      return `<div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
-        <div style="width:140px;font-size:12px;color:var(--muted);text-align:right;text-transform:capitalize">${f.stage.replace(/_/g,' ')}</div>
-        <div style="flex:1;background:rgba(255,255,255,0.04);border-radius:4px;height:28px;overflow:hidden;position:relative">
-          <div style="width:${barW}%;height:100%;background:${color};opacity:0.7;border-radius:4px;transition:width .8s cubic-bezier(.4,0,.2,1)"></div>
-          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:12px;font-weight:600;color:#fff">${f.count}</span>
-        </div>
-        <div style="width:50px;font-size:11px;color:var(--muted);text-align:right">${f.conversion_rate}%</div>
-      </div>`;
-    }).join('')}
-  </div>
-  <div style="margin-bottom:20px">
-    <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Source Breakdown</div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px">
-      ${Object.entries(d.source_breakdown||{}).map(([src,cnt]) =>
-        `<div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);padding:8px 14px;border-radius:8px"><div style="font-weight:700;font-size:16px">${cnt}</div><div style="font-size:11px;color:var(--muted)">${src}</div></div>`
-      ).join('')}
-    </div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-    <div class="stat-card"><div class="stat-value" style="font-size:22px">${d.email_coverage}%</div><div class="stat-label">Email Coverage</div></div>
-    <div class="stat-card" style="cursor:pointer" onclick="exportCSV()"><div style="font-size:22px;font-weight:700;background:var(--gradient-1);-webkit-background-clip:text;-webkit-text-fill-color:transparent">⬇</div><div class="stat-label">Export CSV</div></div>
-  </div>`;
-  el.innerHTML = html;
-}
-
-// ── EXPORT ────────────────────────────────────────────
-function exportCSV() {
-  if (!selectedRoleId) { alert('Select a role first'); return; }
-  window.open(`${API}/roles/${selectedRoleId}/export/csv`, '_blank');
-  appendLog({agent:'SYSTEM', event:'export', message:'Exporting candidates to CSV...'});
-}
-
-function exportJSON() {
-  if (!selectedRoleId) { alert('Select a role first'); return; }
-  window.open(`${API}/roles/${selectedRoleId}/export/json`, '_blank');
-}
-
-// ── DOMAIN SEARCH ─────────────────────────────────────
-function openDomainSearchModal() {
-  document.getElementById('domain-modal').classList.remove('hidden');
-  document.getElementById('domain-results').innerHTML = '';
-}
-
-async function runDomainSearch() {
-  const domain = document.getElementById('domain-input').value.trim();
-  if (!domain) { alert('Enter a domain'); return; }
-  document.getElementById('domain-results').innerHTML = '<div class="text-muted text-sm"><span class="spinner"></span> Searching Hunter.io...</div>';
-  try {
-    const r = await fetch(`${API}/email/domain-search?domain=${encodeURIComponent(domain)}&max_results=10`, {method:'POST'});
-    const d = await r.json();
-    if (!d.emails || !d.emails.length) {
-      document.getElementById('domain-results').innerHTML = '<div class="text-muted text-sm">No emails found. Make sure HUNTER_API_KEY is set.</div>';
-      return;
-    }
-    document.getElementById('domain-results').innerHTML = `
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">${d.count} emails found at ${domain}</div>
-      ${d.emails.map(e => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
-          <div>
-            <div style="font-size:13px;font-weight:600">${e.first||''} ${e.last||''}</div>
-            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-light)">${e.email}</div>
-          </div>
-          <span style="font-size:11px;color:${e.confidence>=80?'var(--green)':'var(--yellow)'}">confidence: ${e.confidence}%</span>
-        </div>`).join('')}`;
-  } catch(e) {
-    document.getElementById('domain-results').innerHTML = `<div class="text-muted text-sm">Error: ${e.message}</div>`;
-  }
-}
-
-// ── ENHANCED BRIEF MODAL (add email discovery button) ─────────────────────
-const _origOpenBrief = openBrief;
-openBrief = async function(candidateId) {
-  await _origOpenBrief(candidateId);
-  const btn = document.getElementById('brief-email-disc-btn');
-  if (btn) {
-    btn.onclick = async () => {
-      const r = await fetch(`${API}/candidates/${candidateId}`).then(r=>r.json());
-      btn.innerHTML = '<span class="spinner"></span>';
-      btn.disabled = true;
-      await discoverSingleEmail(candidateId, r.name);
-      btn.innerHTML = '🔍 Find Email';
-      btn.disabled = false;
-      // refresh brief modal
-      await _origOpenBrief(candidateId);
-    };
-  }
-};
-
-// ── EMAIL CONFIDENCE BADGE IN CANDIDATE ROW ───────────────────────────────
-const _origRenderCandidates = renderCandidates;
-renderCandidates = function(candidates) {
-  _origRenderCandidates(candidates);
-  // Patch each row to show email indicator
-  const rows = document.querySelectorAll('#candidate-list .candidate-row');
-  candidates.forEach((c, i) => {
-    if (!rows[i]) return;
-    const sub = rows[i].querySelector('.cand-sub');
-    if (sub) {
-      const emailIndicator = c.email
-        ? `<span style="color:var(--green);font-size:10px;margin-left:6px">✉ ${c.email}</span>`
-        : `<span style="color:var(--red);font-size:10px;margin-left:6px">✉ no email</span>`;
-      sub.innerHTML = sub.innerHTML + emailIndicator;
-    }
-  });
-};
-
-// ── ENHANCED STATS (email coverage) ──────────────────
-const _origLoadStats = loadStats;
-loadStats = async function() {
-  await _origLoadStats();
-  try {
-    const r = await fetch(`${API}/stats`);
-    const d = await r.json();
-    const el = document.getElementById('s-emails');
-    if (el) el.textContent = d.total_with_email || 0;
-  } catch(e) {}
-};
-
-// ── SWITCH TAB - extended ─────────────────────────────
-const _origSwitchTab = switchTab;
-switchTab = function(name, el) {
-  _origSwitchTab(name, el);
-  if (name === 'emails') loadEmailTab();
-  if (name === 'analytics') loadAnalytics();
-};
-
-// ── SSE: handle email discovery events ───────────────
-const _origConnectSSE = connectSSE;
-connectSSE = function() {
-  _origConnectSSE();
-};
-
-// Patch SSE handler to handle new events
-const origOnMessage = sseSource ? sseSource.onmessage : null;
-// We override after SSE connects — patch appendLog to handle new event types
-const _origAppendLog = appendLog;
-appendLog = function(d) {
-  _origAppendLog(d);
-  if (d.event === 'email_found' || d.event === 'bulk_email_complete') {
-    refreshCandidates();
-    loadStats();
-    if (document.getElementById('tab-emails') && !document.getElementById('tab-emails').classList.contains('hidden')) {
-      loadEmailTab();
-    }
-  }
-};
 
 // ── INIT ─────────────────────────────────────────────
 connectSSE(); loadRoles(); loadStats();
