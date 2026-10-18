@@ -1,7 +1,8 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from database import CandidateStage, RoleStatus
+from utils.evidence import normalize_source_evidence
 
 # ── Role ──────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,9 @@ class CandidateOut(BaseModel):
     linkedin_url: Optional[str]
     github_url: Optional[str]
     source: Optional[str]
+    source_verified: bool
+    source_captured_at: Optional[datetime]
+    source_evidence: Optional[List[Dict[str, Any]]]
     stage: CandidateStage
     score: Optional[float]
     screen_brief: Optional[Dict[str, Any]]
@@ -37,20 +41,39 @@ class CandidateOut(BaseModel):
     last_contacted_at: Optional[datetime]
     last_activity_at: Optional[datetime]
     interview_time: Optional[datetime]
+    contact_consent_at: Optional[datetime]
+    contact_consent_source: Optional[str]
+    reminder_sent_at: Optional[datetime]
     notes: Optional[str]
     created_at: datetime
     updated_at: datetime
     class Config:
         from_attributes = True
 
-class CandidateCreate(BaseModel):
-    role_id: int
-    name: str
-    email: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    github_url: Optional[str] = None
-    source: Optional[str] = "manual"
-    notes: Optional[str] = None
+    @field_validator("source_evidence")
+    @classmethod
+    def expose_only_safe_evidence(cls, value):
+        return normalize_source_evidence(value)
+
+class ConsentRequest(BaseModel):
+    """A recruiter's explicit record that a candidate agreed to be contacted."""
+
+    confirmed: bool
+    source: str = Field(min_length=3, max_length=200)
+
+    @field_validator("source")
+    @classmethod
+    def normalize_source(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("Consent source must contain at least three non-space characters.")
+        return value
+
+
+class PrivacyRequest(BaseModel):
+    """A signed, candidate-specific token from an outreach email."""
+
+    token: str = Field(min_length=20, max_length=2000)
 
 # ── Agent Requests ────────────────────────────────────────────────────────────
 
@@ -69,7 +92,7 @@ class EngageRequest(BaseModel):
 class CoordRequest(BaseModel):
     candidate_id: int
     interviewer_email: str
-    duration_minutes: int = 45
+    duration_minutes: int = Field(default=45, ge=15, le=480)
 
 class TrackRequest(BaseModel):
     role_id: Optional[int] = None  # None = all roles

@@ -23,7 +23,7 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
-body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow: hidden; cursor: none; }
+body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow: hidden; }
 
 /* ── CUSTOM CURSOR ───────────────────────────────── */
 #cursor-dot { position: fixed; width: 8px; height: 8px; background: #fff; border-radius: 50%; pointer-events: none; z-index: 9999; transition: transform 0.1s; mix-blend-mode: difference; }
@@ -318,6 +318,7 @@ textarea.input { resize: vertical; min-height: 90px; }
     <div class="modal-title" id="brief-name"></div>
     <div id="brief-content"></div>
     <div class="btn-row">
+      <button class="btn btn-ghost" id="brief-consent-btn">Record Contact Consent</button>
       <button class="btn btn-primary" id="brief-engage-btn">✉ Send Outreach</button>
       <button class="btn btn-ghost" onclick="closeModal('brief-modal')">Close</button>
     </div>
@@ -345,7 +346,6 @@ function animateRing() {
 animateRing();
 
 document.querySelectorAll('button, .role-card, .candidate-row, .tab, .stage-pill, .action-btn, .agent-btn, a').forEach(el => {
-  el.style.cursor = 'none';
   el.addEventListener('mouseenter', () => { ring.style.width = '55px'; ring.style.height = '55px'; ring.style.borderColor = 'rgba(124,58,237,0.8)'; dot.style.transform = 'scale(1.5)'; });
   el.addEventListener('mouseleave', () => { ring.style.width = '40px'; ring.style.height = '40px'; ring.style.borderColor = 'rgba(124,58,237,0.5)'; dot.style.transform = 'scale(1)'; });
 });
@@ -355,7 +355,6 @@ const observer = new MutationObserver(() => {
   document.querySelectorAll('button, .role-card, .candidate-row, .tab, .stage-pill, .action-btn, .agent-btn').forEach(el => {
     if (el.dataset.cursorBound) return;
     el.dataset.cursorBound = '1';
-    el.style.cursor = 'none';
     el.addEventListener('mouseenter', () => { ring.style.width = '55px'; ring.style.height = '55px'; ring.style.borderColor = 'rgba(124,58,237,0.8)'; dot.style.transform = 'scale(1.5)'; });
     el.addEventListener('mouseleave', () => { ring.style.width = '40px'; ring.style.height = '40px'; ring.style.borderColor = 'rgba(124,58,237,0.5)'; dot.style.transform = 'scale(1)'; });
   });
@@ -365,6 +364,39 @@ observer.observe(document.body, { childList: true, subtree: true });
 // ── APP LOGIC ────────────────────────────────────────
 const API = 'http://localhost:8000/api';
 let selectedRoleId = null, selectedStageFilter = null, allCandidates = [], sseSource = null;
+
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+async function apiFetch(path, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const headers = new Headers(options.headers || {});
+  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+
+  if (WRITE_METHODS.has(method)) {
+    let apiKey = sessionStorage.getItem('hirepath_api_key');
+    if (!apiKey) {
+      apiKey = window.prompt('Enter the HirePath API key to perform this action:');
+      if (!apiKey) throw new Error('An API key is required for this action.');
+      sessionStorage.setItem('hirepath_api_key', apiKey);
+    }
+    headers.set('X-Api-Key', apiKey);
+  }
+
+  const response = await fetch(`${API}${path}`, {...options, method, headers});
+  const isJson = response.headers.get('content-type')?.includes('application/json');
+  const data = isJson ? await response.json() : await response.text();
+  if (!response.ok) {
+    if (response.status === 401) sessionStorage.removeItem('hirepath_api_key');
+    const detail = typeof data === 'object' ? data.detail || data.message : data;
+    throw new Error(detail || `Request failed (${response.status})`);
+  }
+  return data;
+}
+
+function clampNumber(value, minimum, maximum, fallback = minimum) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.min(maximum, Math.max(minimum, numeric)) : fallback;
+}
 
 function connectSSE() {
   if (sseSource) sseSource.close();
@@ -389,12 +421,111 @@ function setConnStatus(ok) {
   document.getElementById('conn-status').textContent = ok ? 'Live' : 'Reconnecting...';
 }
 
+// Fix #10: XSS sanitization helper
+function escapeHTML(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+const EVIDENCE_HOSTS = new Set(['github.com', 'www.github.com', 'stackoverflow.com', 'www.stackoverflow.com']);
+const GITHUB_EVIDENCE_PART = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+
+function safeEvidenceUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== 'https:' || !EVIDENCE_HOSTS.has(host) || url.username || url.password || (url.port && url.port !== '443')) return '';
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (host.endsWith('github.com') && (!parts.length || parts.length > 2 || !parts.every(part => GITHUB_EVIDENCE_PART.test(part)))) return '';
+    if (host.endsWith('stackoverflow.com') && (parts.length < 2 || parts.length > 3 || parts[0].toLowerCase() !== 'users' || !/^\d+$/.test(parts[1]))) return '';
+    url.search = '';
+    url.hash = '';
+    return url.href;
+  } catch {
+    return '';
+  }
+}
+
+function verifiedEvidence(candidate) {
+  if (!candidate?.source_verified || !Array.isArray(candidate.source_evidence)) return [];
+  const seen = new Set();
+  return candidate.source_evidence.map(item => {
+    const url = safeEvidenceUrl(item?.url);
+    if (!url || seen.has(url)) return null;
+    seen.add(url);
+    return {
+      id: /^E\d+$/.test(String(item?.id || '')) ? String(item.id) : '',
+      label: String(item?.label || 'Public source'),
+      detail: typeof item?.detail === 'string' ? item.detail : '',
+      url,
+    };
+  }).filter(Boolean);
+}
+
+function evidenceSection(evidence, capturedAt) {
+  if (!evidence.length) return '';
+  const captured = capturedAt && !Number.isNaN(new Date(capturedAt).getTime())
+    ? new Date(capturedAt).toLocaleString()
+    : 'time not recorded';
+  const links = evidence.map(item => {
+    const detail = item.detail ? `<span class="text-muted" style="font-size:11px"> — ${escapeHTML(item.detail)}</span>` : '';
+    return `<li><a href="${escapeHTML(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(item.label)} ↗</a>${detail}</li>`;
+  }).join('');
+  return `<div class="brief-section"><h4>Verified Public Evidence</h4><p class="text-muted" style="font-size:11px;margin-top:-4px">Live source captured ${escapeHTML(captured)}. Review these links before acting on the assessment.</p><ul>${links}</ul></div>`;
+}
+
+function renderEvidenceCitations(value, evidence) {
+  const byId = new Map(evidence.filter(item => item.id).map(item => [item.id, item]));
+  return escapeHTML(value).replace(/\[(E\d+)\]/g, (match, id) => {
+    const item = byId.get(id);
+    return item
+      ? `<a href="${escapeHTML(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHTML(item.label)}">[${escapeHTML(id)}]</a>`
+      : match;
+  });
+}
+
+function sanitizeReportHTML(value) {
+  const allowedTags = new Set(['H2', 'H3', 'H4', 'P', 'UL', 'OL', 'LI', 'STRONG', 'EM', 'BR', 'A']);
+  const source = new DOMParser().parseFromString(String(value || ''), 'text/html');
+  const output = document.createElement('div');
+
+  const clean = node => {
+    if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent || '');
+    if (node.nodeType !== Node.ELEMENT_NODE) return document.createDocumentFragment();
+    if (!allowedTags.has(node.tagName)) {
+      const fragment = document.createDocumentFragment();
+      node.childNodes.forEach(child => fragment.appendChild(clean(child)));
+      return fragment;
+    }
+
+    const safe = document.createElement(node.tagName.toLowerCase());
+    if (node.tagName === 'A') {
+      try {
+        const url = new URL(node.getAttribute('href') || '', window.location.origin);
+        if (['http:', 'https:', 'mailto:'].includes(url.protocol)) {
+          safe.href = url.href;
+          safe.rel = 'noopener noreferrer';
+          safe.target = '_blank';
+        }
+      } catch {}
+    }
+    node.childNodes.forEach(child => safe.appendChild(clean(child)));
+    return safe;
+  };
+
+  source.body.childNodes.forEach(child => output.appendChild(clean(child)));
+  return output.innerHTML;
+}
+
 function appendLog(d) {
   const feed = document.getElementById('log-feed');
   const el = document.createElement('div');
   el.className = 'log-entry';
-  const agent = d.agent || 'SYSTEM';
-  el.innerHTML = `<span class="log-agent agent-${agent}">${agent}</span><span class="log-msg">${d.message || d.event || ''}</span><div class="log-time">${new Date().toLocaleTimeString()}</div>`;
+  const agentKey = String(d.agent || 'SYSTEM').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 30) || 'SYSTEM';
+  const agent = escapeHTML(agentKey);
+  el.innerHTML = `<span class="log-agent agent-${agent}">${agent}</span><span class="log-msg">${escapeHTML(d.message || d.event || '')}</span><div class="log-time">${new Date().toLocaleTimeString()}</div>`;
   feed.insertBefore(el, feed.firstChild);
   if (feed.children.length > 200) feed.removeChild(feed.lastChild);
 }
@@ -415,7 +546,7 @@ async function loadRoles() {
   roles.forEach(role => {
     const card = document.createElement('div');
     card.className = 'role-card' + (role.id === selectedRoleId ? ' active' : '');
-    card.innerHTML = `<div class="role-name">${role.title}</div><div class="role-meta"><span class="badge badge-active">${role.status}</span><span>candidates</span></div>`;
+    card.innerHTML = `<div class="role-name">${escapeHTML(role.title)}</div><div class="role-meta"><span class="badge badge-active">${escapeHTML(role.status)}</span><span>candidates</span></div>`;
     card.onclick = () => selectRole(role.id, role.title);
     el.appendChild(card);
   });
@@ -458,15 +589,20 @@ function renderCandidates(candidates) {
   const el = document.getElementById('candidate-list');
   if (!candidates.length) { el.innerHTML = '<div class="text-muted" style="padding:30px 0;text-align:center">No candidates in this stage.</div>'; return; }
   el.innerHTML = candidates.map((c, i) => {
-    const score = c.score || 0;
+    const score = clampNumber(c.score, 0, 100, 0);
+    const candidateId = clampNumber(c.id, 0, Number.MAX_SAFE_INTEGER, 0);
     const sc = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--yellow)' : 'var(--red)';
-    const verdict = c.screen_brief?.one_line_verdict || c.screen_brief?.scout_summary || '';
-    const location = c.screen_brief?.location || c.raw_data?.location || '';
+    const verdict = escapeHTML(c.screen_brief?.one_line_verdict || c.screen_brief?.scout_summary || '');
+    const location = escapeHTML(c.screen_brief?.location || '');
     const locBadge = location ? `<span style="font-size:10px;color:var(--muted);margin-left:6px">📍${location}</span>` : '';
-    const sourceTag = c.source ? `<span style="font-size:9px;background:rgba(124,58,237,0.15);color:#a78bfa;padding:1px 6px;border-radius:8px;margin-left:4px">${c.source.replace(/_/g,' ')}</span>` : '';
-    return `<div class="candidate-row anim-in" style="animation-delay:${i*0.03}s" onclick="openBrief(${c.id})">
-      <div class="cand-info"><div class="cand-name">${c.name}${locBadge}</div><div class="cand-sub">${verdict || c.github_url || c.email || ''}${sourceTag}</div></div>
-      <span class="badge badge-${c.stage}">${c.stage.replace(/_/g,' ')}</span>
+    const sourceTag = c.source ? `<span style="font-size:9px;background:rgba(124,58,237,0.15);color:#a78bfa;padding:1px 6px;border-radius:8px;margin-left:4px">${escapeHTML(c.source.replace(/_/g,' '))}</span>` : '';
+    const evidence = verifiedEvidence(c);
+    const sourceLink = evidence[0]
+      ? ` <a href="${escapeHTML(evidence[0].url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="font-size:10px;color:var(--blue)">Verify source ↗</a>`
+      : '';
+    return `<div class="candidate-row anim-in" style="animation-delay:${i*0.03}s" onclick="openBrief(${candidateId})">
+      <div class="cand-info"><div class="cand-name">${escapeHTML(c.name)}${locBadge}</div><div class="cand-sub">${verdict || escapeHTML(c.github_url || c.email || '')}${sourceTag}${sourceLink}</div></div>
+      <span class="badge badge-${escapeHTML(c.stage)}">${escapeHTML(c.stage.replace(/_/g,' '))}</span>
       <div style="text-align:right"><div class="score-num" style="color:${sc}">${score?Math.round(score):'—'}</div><div class="score-bar"><div class="score-fill" style="width:${score}%;background:${sc}"></div></div></div>
     </div>`;
   }).join('');
@@ -476,30 +612,61 @@ async function openBrief(candidateId) {
   const r = await fetch(`${API}/candidates/${candidateId}`); const c = await r.json();
   document.getElementById('brief-name').textContent = `${c.name} — ${c.score ? Math.round(c.score) : '?'}/100`;
   const brief = c.screen_brief || {};
+  const evidence = verifiedEvidence(c);
   let html = '';
-  if (brief.one_line_verdict) html += `<div class="verdict-box">"${brief.one_line_verdict}"</div>`;
+  html += evidenceSection(evidence, c.source_captured_at);
+  if (brief.one_line_verdict) html += `<div class="verdict-box">"${escapeHTML(brief.one_line_verdict)}"</div>`;
   if (brief.hire_recommendation) {
+    const recommendation = String(brief.hire_recommendation);
     const colors = {strong_yes:'var(--green)',yes:'var(--green)',maybe:'var(--yellow)',no:'var(--red)'};
     const bgs = {strong_yes:'var(--green-dim)',yes:'var(--green-dim)',maybe:'var(--yellow-dim)',no:'var(--red-dim)'};
-    html += `<div class="rec-badge" style="background:${bgs[brief.hire_recommendation]||'var(--blue-dim)'};color:${colors[brief.hire_recommendation]||'var(--blue)'}">${brief.hire_recommendation.replace('_',' ').toUpperCase()}</div>`;
+    html += `<div class="rec-badge" style="background:${bgs[recommendation]||'var(--blue-dim)'};color:${colors[recommendation]||'var(--blue)'}">${escapeHTML(recommendation.replace('_',' ').toUpperCase())}</div>`;
   }
-  if (brief.strengths?.length) html += section('Strengths', brief.strengths, 'var(--green)');
-  if (brief.concerns?.length) html += section('Concerns', brief.concerns, 'var(--yellow)');
-  if (brief.red_flags?.length) html += section('Red Flags', brief.red_flags, 'var(--red)');
-  if (brief.skill_gaps?.length) html += section('Skill Gaps', brief.skill_gaps, 'var(--muted)');
+  if (brief.strengths?.length) html += section('Strengths', brief.strengths, 'var(--green)', evidence);
+  if (brief.concerns?.length) html += section('Concerns', brief.concerns, 'var(--yellow)', evidence);
+  if (brief.red_flags?.length) html += section('Red Flags', brief.red_flags, 'var(--red)', evidence);
+  if (brief.skill_gaps?.length) html += section('Skill Gaps', brief.skill_gaps, 'var(--muted)', evidence);
   if (brief.suggested_interview_questions?.length) {
     html += `<div class="brief-section"><h4>Interview Questions</h4>`;
-    brief.suggested_interview_questions.forEach(q => { html += `<div class="q-item">${q}</div>`; });
+    brief.suggested_interview_questions.forEach(q => { html += `<div class="q-item">${renderEvidenceCitations(q, evidence)}</div>`; });
     html += '</div>';
   }
   if (!html) html = '<div class="text-muted">No brief yet. Run SCREEN on this candidate.</div>';
   document.getElementById('brief-content').innerHTML = html;
-  document.getElementById('brief-engage-btn').onclick = () => engageOne(c.id, c.email);
+  const consentButton = document.getElementById('brief-consent-btn');
+  const engageButton = document.getElementById('brief-engage-btn');
+  const canContact = c.source_verified && evidence.length > 0;
+  if (c.contact_consent_at) {
+    consentButton.textContent = '✓ Contact Consent Recorded';
+    consentButton.disabled = true;
+    engageButton.disabled = !c.email || !canContact;
+  } else {
+    consentButton.textContent = 'Record Contact Consent';
+    consentButton.disabled = false;
+    consentButton.onclick = () => recordContactConsent(c);
+    engageButton.disabled = true;
+  }
+  engageButton.onclick = () => engageOne(c);
   document.getElementById('brief-modal').classList.remove('hidden');
 }
 
-function section(title, items, color) {
-  return `<div class="brief-section"><h4>${title}</h4><ul>${items.map(i=>`<li style="color:${color}">${i}</li>`).join('')}</ul></div>`;
+function section(title, items, color, evidence = []) {
+  return `<div class="brief-section"><h4>${escapeHTML(title)}</h4><ul>${items.map(i=>`<li style="color:${color}">${renderEvidenceCitations(i, evidence)}</li>`).join('')}</ul></div>`;
+}
+
+async function recordContactConsent(candidate) {
+  const source = window.prompt('Record how the candidate gave consent to be contacted (for example: referral call, job fair, or direct application):');
+  if (!source || source.trim().length < 3) return;
+  try {
+    await apiFetch(`/candidates/${candidate.id}/contact-consent`, {
+      method: 'POST',
+      body: JSON.stringify({confirmed: true, source: source.trim()}),
+    });
+    await refreshCandidates();
+    await openBrief(candidate.id);
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 // ── AGENTS ───────────────────────────────────────────
@@ -507,11 +674,11 @@ async function runScout() {
   if (!selectedRoleId) { alert('Select a role first'); return; }
   appendLog({agent:'SCOUT', message:'🔍 Starting LIVE SCOUT sourcing in Maharashtra...'});
   appendLog({agent:'SCOUT', message:'📍 Location filter: Maharashtra, India — GitHub + StackOverflow'});
+  appendLog({agent:'SCOUT', message:'🔗 Only profiles with a verifiable public-source link will enter the pipeline.'});
   const btn = document.getElementById('scout-btn');
   btn.innerHTML = '<span class="spinner"></span> &nbsp;Scouting Maharashtra...'; btn.disabled = true;
   try {
-    const r = await fetch(`${API}/scout`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role_id:selectedRoleId})});
-    const d = await r.json();
+    const d = await apiFetch('/scout', {method:'POST', body:JSON.stringify({role_id:selectedRoleId})});
     appendLog({agent:'SCOUT', message:`SCOUT started — scraping live from GitHub/StackOverflow for role ${d.role_id}`});
     // Poll for new candidates every 5 seconds while scouting
     let pollCount = 0;
@@ -528,14 +695,22 @@ async function runScout() {
 async function runScreenAll() {
   if (!selectedRoleId) { alert('Select a role first'); return; }
   appendLog({agent:'SCREEN', message:'Screening all sourced candidates...'});
-  await fetch(`${API}/screen/role/${selectedRoleId}`, {method:'POST'});
+  try {
+    await apiFetch(`/screen/role/${selectedRoleId}`, {method:'POST'});
+  } catch (error) {
+    appendLog({agent:'SCREEN', message:error.message});
+  }
   setTimeout(refreshCandidates, 3000);
 }
 
 async function runFollowupSweep() {
-  const url = selectedRoleId ? `${API}/engage/followup-sweep?role_id=${selectedRoleId}` : `${API}/engage/followup-sweep`;
-  const r = await fetch(url, {method:'POST'}); const d = await r.json();
-  appendLog({agent:'ENGAGE', message:`Follow-up sweep: ${d.swept} emails sent`});
+  const path = selectedRoleId ? `/engage/followup-sweep?role_id=${selectedRoleId}` : '/engage/followup-sweep';
+  try {
+    const d = await apiFetch(path, {method:'POST'});
+    appendLog({agent:'ENGAGE', message:`Follow-up sweep: ${d.swept} candidates checked`});
+  } catch (error) {
+    appendLog({agent:'ENGAGE', message:error.message});
+  }
 }
 
 async function runTrack() {
@@ -549,35 +724,46 @@ async function runTrack() {
 async function runFullPipeline() {
   if (!selectedRoleId) { alert('Select a role first'); return; }
   appendLog({agent:'ORCHESTRATOR', message:'Full pipeline started...'});
-  await fetch(`${API}/pipeline/run?role_id=${selectedRoleId}`, {method:'POST'});
+  try {
+    await apiFetch(`/pipeline/run?role_id=${selectedRoleId}`, {method:'POST'});
+  } catch (error) {
+    appendLog({agent:'ORCHESTRATOR', message:error.message});
+  }
 }
 
 async function engageTop() {
   if (!selectedRoleId) { alert('Select a role first'); return; }
-  const top = allCandidates.filter(c => (c.score||0) >= 55 && ['sourced','screened','replied'].includes(c.stage) && c.email).slice(0,10);
+  const eligible = allCandidates.filter(c => (c.score||0) >= 60 && ['sourced','screened','replied'].includes(c.stage) && c.email && c.source_verified && verifiedEvidence(c).length);
+  const top = eligible.filter(c => c.contact_consent_at).slice(0,10);
   if (!top.length) {
-    const noEmail = allCandidates.filter(c => (c.score||0) >= 55 && !c.email);
-    alert(noEmail.length ? `${noEmail.length} high-scored candidate(s) found but none have emails.\n\nRun SCOUT to discover candidates with public emails.` : 'No candidates ready for outreach. Run SCOUT first.');
+    const awaitingConsent = eligible.filter(c => !c.contact_consent_at);
+    const noEmail = allCandidates.filter(c => (c.score||0) >= 60 && !c.email);
+    alert(awaitingConsent.length
+      ? `${awaitingConsent.length} candidate(s) meet the score threshold but need recruiter-recorded contact consent before outreach.`
+      : noEmail.length
+        ? `${noEmail.length} high-scored candidate(s) have no public email.`
+        : 'No candidates are ready for outreach.');
     return;
   }
   appendLog({agent:'ENGAGE', message:`Engaging ${top.length} top candidates...`});
   try {
-    const r = await fetch(`${API}/engage`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({candidate_ids:top.map(c=>c.id)})});
-    const d = await r.json();
+    const d = await apiFetch('/engage', {method:'POST', body:JSON.stringify({candidate_ids:top.map(c=>c.id)})});
     appendLog({agent:'ENGAGE', message:`Outreach sent to ${d.sent}/${top.length} candidates`});
     refreshCandidates();
   } catch(err) { appendLog({agent:'ENGAGE', message:`Error: ${err.message}`}); }
 }
 
-async function engageOne(candidateId, email) {
-  if (!email) { alert('No email available for this candidate.\n\nRun SCOUT to find candidates with public emails.'); return; }
+async function engageOne(candidate) {
+  if (!candidate.source_verified || !verifiedEvidence(candidate).length) { alert('This candidate is missing a recruiter-verifiable public source link.'); return; }
+  if (!candidate.email) { alert('No public email is available for this candidate.'); return; }
+  if (!candidate.contact_consent_at) { alert('Record recruiter-confirmed contact consent before sending outreach.'); return; }
   const btn = document.getElementById('brief-engage-btn');
   btn.innerHTML = '<span class="spinner"></span> Sending...'; btn.disabled = true;
   try {
-    const r = await fetch(`${API}/engage/${candidateId}`, {method:'POST'}); const d = await r.json();
+    const d = await apiFetch(`/engage/${candidate.id}`, {method:'POST'});
     if (d.success) { btn.innerHTML = '✓ Sent!'; btn.style.background = 'var(--green)'; btn.style.color = '#000'; setTimeout(() => closeModal('brief-modal'), 1500); }
     else { btn.innerHTML = '✗ Failed'; btn.style.background = 'var(--red)'; setTimeout(() => { btn.innerHTML = '✉ Send Outreach'; btn.style.background = ''; btn.style.color = ''; btn.disabled = false; }, 2000); }
-    appendLog({agent:'ENGAGE', message:`Email ${d.success?'sent':'failed'} to ${d.candidate}`});
+    appendLog({agent:'ENGAGE', message:`Outreach ${d.success?'sent':'failed'}`});
     refreshCandidates();
   } catch(err) { btn.innerHTML = '✉ Send Outreach'; btn.disabled = false; }
 }
@@ -586,8 +772,17 @@ async function engageOne(candidateId, email) {
 function openCoordModal() {
   if (!selectedRoleId) { alert('Select a role first'); return; }
   const sel = document.getElementById('coord-candidate');
-  sel.innerHTML = allCandidates.filter(c => ['replied','screened'].includes(c.stage)).map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-  if (!sel.options.length) sel.innerHTML = allCandidates.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  const choices = allCandidates.filter(c => ['replied','screened'].includes(c.stage) && c.source_verified && verifiedEvidence(c).length);
+  const verifiedCandidates = allCandidates.filter(c => c.source_verified && verifiedEvidence(c).length);
+  const candidates = choices.length ? choices : verifiedCandidates;
+  sel.replaceChildren();
+  candidates.forEach(candidate => {
+    const option = document.createElement('option');
+    option.value = String(candidate.id);
+    option.textContent = candidate.name;
+    sel.appendChild(option);
+  });
+  if (!sel.options.length) { alert('Add a candidate before scheduling an interview.'); return; }
   document.getElementById('coord-modal').classList.remove('hidden');
 }
 
@@ -596,10 +791,17 @@ async function scheduleInterview() {
   const email = document.getElementById('coord-email').value;
   const duration = document.getElementById('coord-duration').value;
   if (!email) { alert('Interviewer email required'); return; }
-  const r = await fetch(`${API}/coord/schedule`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({candidate_id:parseInt(candidateId),interviewer_email:email,duration_minutes:parseInt(duration)})});
-  const d = await r.json();
-  document.getElementById('coord-result').innerHTML = d.success ? `<div style="color:var(--green);font-size:13px;margin-top:8px">✓ Interview scheduled: ${new Date(d.slot_start).toLocaleString()}</div>` : `<div style="color:var(--red);font-size:13px">Error: ${d.error||'Unknown'}</div>`;
-  if (d.success) { appendLog({agent:'COORD', message:`Interview booked: ${new Date(d.slot_start).toLocaleString()}`}); refreshCandidates(); }
+  const result = document.getElementById('coord-result');
+  try {
+    const d = await apiFetch('/coord/schedule', {method:'POST', body:JSON.stringify({candidate_id:parseInt(candidateId, 10),interviewer_email:email,duration_minutes:parseInt(duration, 10)})});
+    result.textContent = `✓ Interview scheduled: ${new Date(d.slot_start).toLocaleString()}`;
+    result.style.cssText = 'color:var(--green);font-size:13px;margin-top:8px';
+    appendLog({agent:'COORD', message:`Interview booked: ${new Date(d.slot_start).toLocaleString()}`});
+    refreshCandidates();
+  } catch (error) {
+    result.textContent = `Error: ${error.message}`;
+    result.style.cssText = 'color:var(--red);font-size:13px;margin-top:8px';
+  }
 }
 
 // ── HEALTH ───────────────────────────────────────────
@@ -609,37 +811,44 @@ async function loadHealthSidebar(roleId) {
 }
 
 function renderHealthSidebar(h) {
-  const color = h.health_score >= 70 ? 'var(--green)' : h.health_score >= 40 ? 'var(--yellow)' : 'var(--red)';
+  const score = clampNumber(h.health_score, 0, 100, 0);
+  const staleCount = clampNumber(h.stale_candidates?.length, 0, 100000, 0);
+  const total = clampNumber(h.total_candidates, 0, 100000, 0);
+  const color = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--yellow)' : 'var(--red)';
   document.getElementById('health-sidebar').innerHTML = `<div class="health-widget">
-    <div class="health-score" style="color:${color}">${h.health_score}<span style="font-size:14px;color:var(--muted)">/100</span></div>
-    <div class="health-bar-outer"><div class="health-bar-fill" style="width:${h.health_score}%;background:${color}"></div></div>
-    <div class="text-sm text-muted">${h.stale_candidates?.length||0} stale · ${h.total_candidates||0} total</div>
+    <div class="health-score" style="color:${color}">${score}<span style="font-size:14px;color:var(--muted)">/100</span></div>
+    <div class="health-bar-outer"><div class="health-bar-fill" style="width:${score}%;background:${color}"></div></div>
+    <div class="text-sm text-muted">${staleCount} stale · ${total} total</div>
   </div>`;
 }
 
 function renderHealthDetail(h) {
   const el = document.getElementById('health-detail');
-  const color = h.health_score >= 70 ? 'var(--green)' : h.health_score >= 40 ? 'var(--yellow)' : 'var(--red)';
+  const score = clampNumber(h.health_score, 0, 100, 0);
+  const color = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--yellow)' : 'var(--red)';
   let html = `<div style="display:flex;align-items:baseline;gap:20px;margin-bottom:20px">
-    <div><div style="font-size:48px;font-weight:800;font-family:'JetBrains Mono',monospace;color:${color}">${h.health_score}</div><div class="text-muted text-sm">/100 health score</div></div>
-    <div style="flex:1"><div class="health-bar-outer" style="height:10px"><div class="health-bar-fill" style="width:${h.health_score}%;background:${color}"></div></div></div></div>`;
+    <div><div style="font-size:48px;font-weight:800;font-family:'JetBrains Mono',monospace;color:${color}">${score}</div><div class="text-muted text-sm">/100 health score</div></div>
+    <div style="flex:1"><div class="health-bar-outer" style="height:10px"><div class="health-bar-fill" style="width:${score}%;background:${color}"></div></div></div></div>`;
   if (h.stage_breakdown?.length) {
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:20px">';
     h.stage_breakdown.filter(s => s.count > 0).forEach(s => {
-      html += `<div class="stat-card" style="padding:12px"><div style="font-size:22px;font-weight:800;font-family:'JetBrains Mono',monospace">${s.count}</div><div class="text-sm text-muted">${s.stage.replace(/_/g,' ')}</div></div>`;
+      html += `<div class="stat-card" style="padding:12px"><div style="font-size:22px;font-weight:800;font-family:'JetBrains Mono',monospace">${clampNumber(s.count, 0, 100000, 0)}</div><div class="text-sm text-muted">${escapeHTML(String(s.stage).replace(/_/g,' '))}</div></div>`;
     });
     html += '</div>';
   }
   if (h.insights?.length) {
     html += '<div style="margin-bottom:16px"><div class="section-label" style="margin:0 0 10px">Insights</div>';
-    h.insights.forEach(i => { html += `<div class="insight">${i}</div>`; });
+    h.insights.forEach(i => { html += `<div class="insight">${escapeHTML(i)}</div>`; });
     html += '</div>';
   }
   if (h.stale_candidates?.length) {
     html += '<div><div class="section-label" style="margin:0 0 10px">Stale Candidates</div>';
     h.stale_candidates.forEach(c => {
       const days = c.last_activity_at ? Math.floor((Date.now() - new Date(c.last_activity_at))/86400000) : '?';
-      html += `<div class="candidate-row"><div class="cand-info"><div class="cand-name">${c.name}</div><div class="cand-sub">${c.stage} · ${days} days idle</div></div><span class="badge badge-stale">stale</span></div>`;
+      const candidateId = clampNumber(c.id, 0, Number.MAX_SAFE_INTEGER, 0);
+      if (candidateId) {
+        html += `<div class="candidate-row"><div class="cand-info"><div class="cand-name">${escapeHTML(c.name)}</div><div class="cand-sub">${escapeHTML(c.stage)} · ${days} days idle</div></div><button class="btn btn-ghost" onclick="markCandidatesStale([${candidateId}])">Mark stale</button></div>`;
+      }
     });
     html += '</div>';
   }
@@ -650,10 +859,22 @@ function renderHealthDetail(h) {
   document.getElementById('tab-report').classList.add('hidden');
 }
 
+async function markCandidatesStale(candidateIds) {
+  if (!candidateIds.length || !window.confirm('Mark the selected candidate as stale?')) return;
+  try {
+    const result = await apiFetch('/track/mark-stale', {method:'POST', body:JSON.stringify(candidateIds)});
+    appendLog({agent:'TRACK', message:`Marked ${result.marked_stale} candidate(s) stale`});
+    await refreshCandidates();
+    await runTrack();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
 async function loadReport() {
   document.getElementById('report-content').innerHTML = '<span class="spinner"></span> Generating report...';
   const r = await fetch(`${API}/track/report`); const d = await r.json();
-  document.getElementById('report-content').innerHTML = d.report_html || 'No data.';
+  document.getElementById('report-content').innerHTML = sanitizeReportHTML(d.report_html || 'No data.');
 }
 
 // ── ROLE CREATION ────────────────────────────────────
@@ -664,10 +885,14 @@ async function createRole() {
   const desc = document.getElementById('nr-desc').value.trim();
   const req = document.getElementById('nr-req').value.trim();
   if (!title || !desc) { alert('Title and description required'); return; }
-  await fetch(`${API}/roles`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title, description:desc, requirements:req||null})});
-  closeModal('new-role-modal');
-  document.getElementById('nr-title').value=''; document.getElementById('nr-desc').value=''; document.getElementById('nr-req').value='';
-  loadRoles(); loadStats();
+  try {
+    await apiFetch('/roles', {method:'POST', body:JSON.stringify({title, description:desc, requirements:req||null})});
+    closeModal('new-role-modal');
+    document.getElementById('nr-title').value=''; document.getElementById('nr-desc').value=''; document.getElementById('nr-req').value='';
+    loadRoles(); loadStats();
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
@@ -679,7 +904,35 @@ function switchTab(name, el) {
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.modal-overlay').forEach(m => m.classList.add('hidden')); });
 
+async function handlePrivacyAction() {
+  const query = new URLSearchParams(window.location.search);
+  const action = query.get('privacy_action');
+  const token = query.get('token');
+  if (!token || !['opt_out', 'delete'].includes(action)) return;
+
+  const description = action === 'delete'
+    ? 'Delete your HirePath candidate profile and related activity records?'
+    : 'Stop future HirePath outreach and remove nonessential profile data?';
+  if (!window.confirm(description)) return;
+
+  try {
+    const response = await fetch(`${API}/privacy/${action === 'delete' ? 'delete' : 'opt-out'}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || data.message || 'Privacy request could not be completed.');
+    alert(data.message || 'Your privacy request has been completed.');
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+}
+
 // ── INIT ─────────────────────────────────────────────
+handlePrivacyAction();
 connectSSE(); loadRoles(); loadStats();
 setInterval(loadStats, 15000); setInterval(loadRoles, 10000);
 fetch(`${API}/logs?limit=50`).then(r=>r.json()).then(logs => { logs.reverse().forEach(l => appendLog({agent:l.agent, event:l.event_type, message:l.message})); }).catch(()=>{});

@@ -32,9 +32,6 @@ Thumbs.db
 # Environment files
 .env
 
-# ChromaDB
-chroma_db/
-
 # Google auth tokens
 token.pickle
 
@@ -46,4 +43,11 @@ node_modules/
 
 # Byte-compiled
 *.pyc
+
+# Pytest
+.pytest_cache/
+
+# Auth tokens
+token.json
+credentials.json
 

@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, Float, DateTime, Enum, ForeignKey, JSON, Integer, func
+from sqlalchemy import Boolean, String, Text, Float, DateTime, Enum, ForeignKey, JSON, Integer, false, func
 from datetime import datetime
 from typing import Optional, List
 import enum
@@ -55,15 +55,25 @@ class Candidate(Base):
     linkedin_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     github_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     resume_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    source: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # github/linkedin/wellfound/manual
+    source: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Candidate records are visible to recruiters only after SCOUT captures at
+    # least one public, human-reviewable source URL.
+    source_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    source_captured_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_evidence: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
     stage: Mapped[CandidateStage] = mapped_column(Enum(CandidateStage), default=CandidateStage.SOURCED)
     score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     screen_brief: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     outreach_count: Mapped[int] = mapped_column(Integer, default=0)
     last_contacted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    interview_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # An interview is an absolute moment in time. PostgreSQL needs a timezone-aware
+    # column so an IST invite cannot be stored as a shifted UTC timestamp.
+    interview_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     calendar_event_id: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    contact_consent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    contact_consent_source: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    reminder_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

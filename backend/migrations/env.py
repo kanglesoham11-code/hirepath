@@ -12,6 +12,11 @@ if config.config_file_name is not None:
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from database import Base
+from config import settings
+
+# Always use the deployment's actual async database URL rather than the
+# development PostgreSQL placeholder in alembic.ini.
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:

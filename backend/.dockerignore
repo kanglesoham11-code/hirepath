@@ -1,0 +1,12 @@
+# Fix #14: Prevent secrets and build artifacts from being copied into Docker image
+.env
+*.db
+*.sqlite3
+token.pickle
+__pycache__/
+*.pyc
+.git/
+.gitignore
+*.log
+venv/
+.venv/

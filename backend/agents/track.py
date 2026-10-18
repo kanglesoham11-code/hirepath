@@ -11,6 +11,7 @@ from sqlalchemy import select, func
 from database import Candidate, Role, CandidateStage, RoleStatus, AgentLog, AsyncSessionLocal
 from utils.llm import groq_chat
 from utils.logger import log_event
+from utils.evidence import candidate_has_verifiable_evidence
 from config import settings
 from schemas import PipelineHealth, PipelineStageCount, CandidateOut
 
@@ -19,8 +20,8 @@ from schemas import PipelineHealth, PipelineStageCount, CandidateOut
 
 async def send_slack_alert(message: str) -> bool:
     if not settings.SLACK_WEBHOOK_URL:
-        print(f"[TRACK] Slack not configured. Alert: {message}")
-        return True
+        print("[TRACK] Slack is not configured; alert was not sent.")
+        return False
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(settings.SLACK_WEBHOOK_URL, json={"text": message})
@@ -39,11 +40,12 @@ async def get_stale_candidates(role_id: int | None = None) -> list[Candidate]:
         q = select(Candidate).where(
             Candidate.stage.notin_([CandidateStage.HIRED, CandidateStage.REJECTED, CandidateStage.STALE]),
             Candidate.last_activity_at < cutoff,
+            Candidate.source_verified.is_(True),
         )
         if role_id:
             q = q.where(Candidate.role_id == role_id)
         result = await session.execute(q)
-        return result.scalars().all()
+        return [candidate for candidate in result.scalars().all() if candidate_has_verifiable_evidence(candidate)]
 
 
 async def mark_stale(candidate_ids: list[int]) -> int:
@@ -51,10 +53,13 @@ async def mark_stale(candidate_ids: list[int]) -> int:
     async with AsyncSessionLocal() as session:
         for cid in candidate_ids:
             c = await session.get(Candidate, cid)
-            if c:
+            if c and candidate_has_verifiable_evidence(c):
                 c.stage = CandidateStage.STALE
+                c.last_activity_at = datetime.utcnow()
                 count += 1
         await session.commit()
+    if count > 0:
+        await log_event("TRACK", "candidates_marked_stale", f"Marked {count} candidate(s) as STALE")
     return count
 
 
@@ -73,9 +78,12 @@ async def compute_pipeline_health(role_id: int) -> dict:
         if not role:
             return {}
         result = await session.execute(
-            select(Candidate).where(Candidate.role_id == role_id)
+            select(Candidate).where(
+                Candidate.role_id == role_id,
+                Candidate.source_verified.is_(True),
+            )
         )
-        candidates = result.scalars().all()
+        candidates = [candidate for candidate in result.scalars().all() if candidate_has_verifiable_evidence(candidate)]
 
     if not candidates:
         return {
@@ -213,15 +221,30 @@ async def run_track(role_id: int | None = None) -> dict:
         health = await compute_pipeline_health(role.id)
         results[role.id] = health
 
+        # Fix #13: Skip roles with no candidates to avoid noisy alerts
+        if health.get("total_candidates", 0) == 0:
+            continue
+
         stale_cands = await get_stale_candidates(role.id)
         if stale_cands:
-            msg = f"⚠️ *HIREPATH ALERT* — {len(stale_cands)} stale candidates in '{role.title}' pipeline. Action needed."
-            await send_slack_alert(msg)
-            await log_event("TRACK", "stale_alert", msg, role_id=role.id)
+            msg = f"WARNING *HIREPATH ALERT* -- {len(stale_cands)} stale candidates in '{role.title}' pipeline. Action needed."
+            if await send_slack_alert(msg):
+                await log_event("TRACK", "stale_alert_sent", msg, role_id=role.id)
+            else:
+                await log_event(
+                    "TRACK", "stale_alert_not_sent",
+                    "Stale-candidate alert was not sent because Slack is not configured or rejected it.",
+                    role_id=role.id,
+                )
 
         if health.get("health_score", 100) < 40:
-            msg = f"🔴 *HIREPATH* — '{role.title}' pipeline health is {health['health_score']:.0f}/100. Review urgently."
-            await send_slack_alert(msg)
+            msg = f"RED *HIREPATH* -- '{role.title}' pipeline health is {health['health_score']:.0f}/100. Review urgently."
+            if not await send_slack_alert(msg):
+                await log_event(
+                    "TRACK", "health_alert_not_sent",
+                    "Pipeline-health alert was not sent because Slack is not configured or rejected it.",
+                    role_id=role.id,
+                )
 
     await log_event("TRACK", "completed", f"Analysis done for {len(roles)} role(s)")
     return {"roles_analyzed": len(roles), "results": results}

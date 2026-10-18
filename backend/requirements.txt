@@ -13,17 +13,8 @@ alembic==1.13.3
 # HTTP client
 httpx==0.27.2
 
-# LLM
-groq==0.11.0           # optional; we use raw httpx calls but this adds typed client
-
 # Scheduling
 apscheduler==3.10.4
-
-# PDF parsing
-PyMuPDF==1.24.11       # fitz — resume parsing
-
-# Vector DB (optional, for semantic candidate search)
-chromadb==0.5.20
 
 # Google APIs (optional — needed for Calendar integration)
 google-auth==2.35.0
@@ -32,6 +23,3 @@ google-api-python-client==2.149.0
 
 # LangGraph (optional — orchestrator fallback works without it)
 langgraph==0.2.38
-
-# Dev
-python-multipart==0.0.12

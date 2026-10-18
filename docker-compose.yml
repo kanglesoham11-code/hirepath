@@ -32,7 +32,6 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-      - chroma_data:/app/chroma_db
     restart: unless-stopped
 
   frontend:
@@ -46,4 +45,3 @@ services:
 
 volumes:
   pgdata:
-  chroma_data:

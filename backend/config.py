@@ -1,5 +1,4 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
 
 class Settings(BaseSettings):
     # Database
@@ -7,7 +6,7 @@ class Settings(BaseSettings):
     
     # Groq LLM
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
     
     # GitHub
     GITHUB_TOKEN: str = ""
@@ -22,8 +21,11 @@ class Settings(BaseSettings):
     # Slack
     SLACK_WEBHOOK_URL: str = ""
     
-    # ChromaDB
-    CHROMA_PERSIST_DIR: str = "./chroma_db"
+    # Auth — required on all write endpoints and used to sign privacy links
+    API_SECRET_KEY: str = ""
+
+    # Candidate privacy links expire after this many days.
+    PRIVACY_TOKEN_TTL_DAYS: int = 30
     
     # App
     APP_HOST: str = "0.0.0.0"
