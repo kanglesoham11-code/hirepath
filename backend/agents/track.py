@@ -38,7 +38,7 @@ async def get_stale_candidates(role_id: int | None = None) -> list[Candidate]:
     cutoff = datetime.utcnow() - timedelta(days=settings.STALE_THRESHOLD_DAYS)
     async with AsyncSessionLocal() as session:
         q = select(Candidate).where(
-            Candidate.stage.notin_([CandidateStage.HIRED, CandidateStage.REJECTED, CandidateStage.STALE]),
+            Candidate.stage.notin_([CandidateStage.HIRED, CandidateStage.REJECTED, CandidateStage.CLOSED]),
             Candidate.last_activity_at < cutoff,
             Candidate.source_verified.is_(True),
         )
@@ -54,12 +54,12 @@ async def mark_stale(candidate_ids: list[int]) -> int:
         for cid in candidate_ids:
             c = await session.get(Candidate, cid)
             if c and candidate_has_verifiable_evidence(c):
-                c.stage = CandidateStage.STALE
+                c.stage = CandidateStage.CLOSED
                 c.last_activity_at = datetime.utcnow()
                 count += 1
         await session.commit()
     if count > 0:
-        await log_event("TRACK", "candidates_marked_stale", f"Marked {count} candidate(s) as STALE")
+        await log_event("TRACK", "candidates_marked_stale", f"Marked {count} candidate(s) as CLOSED")
     return count
 
 
@@ -67,9 +67,9 @@ async def mark_stale(candidate_ids: list[int]) -> int:
 
 STAGE_ORDER = [
     CandidateStage.SOURCED, CandidateStage.SCREENED,
-    CandidateStage.OUTREACH_SENT, CandidateStage.REPLIED,
-    CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED,
-    CandidateStage.OFFER, CandidateStage.HIRED,
+    CandidateStage.OUTREACH, CandidateStage.REPLIED,
+    CandidateStage.INTERVIEW, CandidateStage.OFFER,
+    CandidateStage.HIRED,
 ]
 
 async def compute_pipeline_health(role_id: int) -> dict:
@@ -102,7 +102,7 @@ async def compute_pipeline_health(role_id: int) -> dict:
 
     stale_cutoff = datetime.utcnow() - timedelta(days=settings.STALE_THRESHOLD_DAYS)
     stale = [c for c in candidates if c.last_activity_at and c.last_activity_at < stale_cutoff
-             and c.stage not in (CandidateStage.HIRED, CandidateStage.REJECTED)]
+             and c.stage not in (CandidateStage.HIRED, CandidateStage.REJECTED, CandidateStage.CLOSED)]
 
     # Detect bottleneck: stage with highest count that isn't terminal
     active_stages = {s: stage_counts.get(s, 0) for s in [st.value for st in STAGE_ORDER[:7]]}
@@ -123,7 +123,7 @@ async def compute_pipeline_health(role_id: int) -> dict:
         insights.append(f"📉 {offer_declines} candidates at offer stage — review offer competitiveness.")
     if total > 10 and hired == 0:
         insights.append("🎯 Large pipeline with 0 hires — consider moving top candidates to interview.")
-    outreach_sent = stage_counts.get("outreach_sent", 0)
+    outreach_sent = stage_counts.get("outreach", 0)
     replied = stage_counts.get("replied", 0)
     if outreach_sent > 5 and replied == 0:
         insights.append(f"📬 {outreach_sent} outreach sent, 0 replies — revisit messaging or targeting.")

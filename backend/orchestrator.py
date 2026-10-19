@@ -8,6 +8,14 @@ from typing import TypedDict, Optional, List, Any
 from datetime import datetime
 
 try:
+    import langchain
+    for attr, val in [("debug", False), ("verbose", False), ("llm_cache", None)]:
+        if not hasattr(langchain, attr):
+            setattr(langchain, attr, val)
+except Exception:
+    pass
+
+try:
     from langgraph.graph import StateGraph, END
     HAS_LANGGRAPH = True
 except ImportError:
@@ -150,38 +158,47 @@ async def run_full_pipeline(
         "started_at": datetime.utcnow().isoformat(),
     }
 
-    graph = build_pipeline_graph()
+    try:
+        graph = build_pipeline_graph()
+        final_state = None
 
-    if graph:
-        # LangGraph path
-        final_state = await graph.ainvoke(initial_state)
-    else:
-        # Fallback: sequential execution without LangGraph
-        await log_event("ORCHESTRATOR", "info", "LangGraph not available — running sequential fallback", role_id=role_id)
-        state = initial_state
-        state = await scout_node(state)
-        state = await screen_node(state)
-        if state.get("top_candidate_ids"):
-            state = await engage_node(state)
-            state = await followup_node(state)
-        state = await track_node(state)
-        final_state = state
+        if graph:
+            try:
+                final_state = await graph.ainvoke(initial_state)
+            except Exception as ge:
+                await log_event("ORCHESTRATOR", "warning", f"LangGraph execution error: {ge} — running sequential pipeline", role_id=role_id)
+                final_state = None
 
-    await log_event(
-        "ORCHESTRATOR", "pipeline_complete",
-        f"Pipeline done. Steps: {final_state.get('completed_steps')}. Sourced: {final_state.get('sourced_count')}",
-        role_id=role_id,
-        data={"steps": final_state.get("completed_steps"), "sourced": final_state.get("sourced_count")},
-    )
+        if not final_state:
+            # Fallback: sequential execution without LangGraph
+            await log_event("ORCHESTRATOR", "info", "Running sequential pipeline execution", role_id=role_id)
+            state = initial_state
+            state = await scout_node(state)
+            state = await screen_node(state)
+            if state.get("top_candidate_ids"):
+                state = await engage_node(state)
+                state = await followup_node(state)
+            state = await track_node(state)
+            final_state = state
 
-    return {
-        "role_id": role_id,
-        "completed_steps": final_state.get("completed_steps", []),
-        "sourced_count": final_state.get("sourced_count", 0),
-        "screened_count": len(final_state.get("screened_results", [])),
-        "engaged_count": len(final_state.get("engaged_results", [])),
-        "top_candidates": len(final_state.get("top_candidate_ids", [])),
-        "pipeline_health": final_state.get("pipeline_health", {}),
-        "started_at": final_state.get("started_at"),
-        "completed_at": datetime.utcnow().isoformat(),
-    }
+        await log_event(
+            "ORCHESTRATOR", "pipeline_complete",
+            f"Pipeline done. Steps: {final_state.get('completed_steps')}. Sourced: {final_state.get('sourced_count')}",
+            role_id=role_id,
+            data={"steps": final_state.get("completed_steps"), "sourced": final_state.get("sourced_count")},
+        )
+
+        return {
+            "role_id": role_id,
+            "completed_steps": final_state.get("completed_steps", []),
+            "sourced_count": final_state.get("sourced_count", 0),
+            "screened_count": len(final_state.get("screened_results", [])),
+            "engaged_count": len(final_state.get("engaged_results", [])),
+            "top_candidates": len(final_state.get("top_candidate_ids", [])),
+            "pipeline_health": final_state.get("pipeline_health", {}),
+            "started_at": final_state.get("started_at"),
+            "completed_at": datetime.utcnow().isoformat(),
+        }
+    except Exception as exc:
+        await log_event("ORCHESTRATOR", "error", f"Pipeline encountered an error: {exc}", role_id=role_id)
+        raise

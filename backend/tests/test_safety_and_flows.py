@@ -198,7 +198,8 @@ class TestScoutAndCandidateQueries:
                 screened = await list_candidates(role_id, stage="screened", db=session)
                 sourced = await list_candidates(role_id, stage="sourced", db=session)
 
-            assert [candidate.id for candidate in screened] == [candidate_id]
+            # New frontend-compatible API returns string IDs like '#CAN-00001'
+            assert [candidate.id for candidate in screened] == [f"#CAN-{candidate_id:05d}"]
             assert sourced == []
 
         asyncio.run(run())

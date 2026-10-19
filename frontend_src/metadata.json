@@ -1,0 +1,6 @@
+{
+  "name": "HirePath",
+  "description": "Consent-first recruiting infrastructure with automated candidate sourcing, DPDPA compliance guard, and tamper-evident audit ledger.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

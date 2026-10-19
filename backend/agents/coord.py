@@ -248,7 +248,7 @@ async def schedule_interview(
     # Update candidate record
     async with AsyncSessionLocal() as session:
         c = await session.get(Candidate, candidate_id)
-        c.stage = CandidateStage.INTERVIEW_SCHEDULED
+        c.stage = CandidateStage.INTERVIEW
         c.interview_time = slot_start
         c.calendar_event_id = event_id
         c.last_activity_at = datetime.utcnow()
@@ -319,7 +319,7 @@ async def run_reminder_sweep(hours_before: int = 24, window_hours: int = 1) -> l
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(Candidate).where(
-                Candidate.stage == CandidateStage.INTERVIEW_SCHEDULED,
+                Candidate.stage == CandidateStage.INTERVIEW,
                 Candidate.interview_time.is_not(None),
                 Candidate.reminder_sent_at.is_(None),
                 Candidate.source_verified.is_(True),

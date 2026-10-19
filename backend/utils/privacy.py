@@ -35,7 +35,12 @@ def _b64encode(value: bytes) -> str:
 
 
 def _b64decode(value: str) -> bytes:
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    # Phase 0.2: Strict round-trip — reject if re-encoding differs
+    re_encoded = base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=")
+    if re_encoded != value:
+        raise PrivacyTokenError("The privacy link is invalid.")
+    return decoded
 
 
 def create_privacy_token(candidate_id: int, action: PrivacyAction) -> str:

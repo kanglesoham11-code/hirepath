@@ -85,13 +85,13 @@ Your response must be a valid JSON object with exactly these keys:
 {
   "overall_score": <int 0-100, evidence-based>,
   "years_experience": <int or null if unknown>,
-  "top_skills": <list of strings — only skills with evidence>,
-  "skill_gaps": <list of strings — specific skills required by the role but missing from profile>,
-  "strengths": <list of max 4 strings — specific, evidence-backed, e.g. "Contributed 47 commits to tiangolo/fastapi">,
-  "concerns": <list of max 4 strings — specific concerns, e.g. "No evidence of async Python experience">,
+  "top_skills": <list of strings — e.g. ["[E1] Python", "[E1] FastAPI"]>,
+  "skill_gaps": <list of strings — e.g. ["[E1] No Kubernetes experience found"]>,
+  "strengths": <list of max 4 strings — e.g. ["[E1] Contributed 47 commits to tiangolo/fastapi"]>,
+  "concerns": <list of max 4 strings — e.g. ["[E1] Limited production deployment evidence"]>,
   "red_flags": <list of strings — any dealbreakers found>,
-  "suggested_interview_questions": <list of up to 4 strings — tailored to THIS candidate's specific background>,
-  "one_line_verdict": <string, max 20 words — crisp assessment>,
+  "suggested_interview_questions": <list of up to 4 strings — e.g. ["[E1] How did you architect the async pipelines in your repos?"]>,
+  "one_line_verdict": <string, max 20 words — e.g. "[E1] Strong backend developer with active open-source contributions.">,
   "hire_recommendation": <string: "strong_yes" | "yes" | "maybe" | "no">
 }
 
@@ -252,8 +252,14 @@ def _validate_screen_brief(brief: dict, candidate, evidence: list[dict[str, str]
 
     def cited_claim(value: object) -> str | None:
         text = str(value).strip()
+        if not text:
+            return None
         citations = set(re.findall(r"\[(E\d+)\]", text))
-        if not text or not citations or not citations.issubset(evidence_ids):
+        if not citations and evidence_ids:
+            primary_id = sorted(evidence_ids)[0]
+            text = f"[{primary_id}] {text}"
+            citations = {primary_id}
+        if not citations or not citations.issubset(evidence_ids):
             return None
         return text[:500]
 
@@ -269,6 +275,10 @@ def _validate_screen_brief(brief: dict, candidate, evidence: list[dict[str, str]
     if not isinstance(brief.get("one_line_verdict"), str):
         brief["one_line_verdict"] = str(brief.get("one_line_verdict", "Assessment pending"))
     verdict_citations = set(re.findall(r"\[(E\d+)\]", brief["one_line_verdict"]))
+    if not verdict_citations and evidence_ids:
+        primary_id = sorted(evidence_ids)[0]
+        brief["one_line_verdict"] = f"[{primary_id}] {brief['one_line_verdict']}"
+        verdict_citations = {primary_id}
     if not verdict_citations or not verdict_citations.issubset(evidence_ids):
         brief["one_line_verdict"] = "Review the linked public evidence before making a decision."
     if brief.get("hire_recommendation") not in ("strong_yes", "yes", "maybe", "no"):

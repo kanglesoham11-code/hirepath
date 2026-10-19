@@ -1,0 +1,154 @@
+text,expected_accepted,expected_city
+"Pune, India",True,Pune
+"Mumbai, Maharashtra, India",True,Mumbai
+"Pimpri-Chinchwad, India",True,Pimpri-Chinchwad
+"Bombay, India",True,Mumbai
+"Poona, MH",True,Pune
+"Satara, Maharashtra",True,Satara
+"Nagpur, Maharashtra, India",True,Nagpur
+"Nashik, India",True,Nashik
+"Kolhapur, Maharashtra",True,Kolhapur
+"Solapur, India",True,Solapur
+"Amravati, Maharashtra",True,Amravati
+"Akola, Maharashtra, India",True,Akola
+"Latur, Maharashtra",True,Latur
+"Nanded, India",True,Nanded
+"Jalgaon, Maharashtra",True,Jalgaon
+"Dhule, India",True,Dhule
+"Chandrapur, Maharashtra",True,Chandrapur
+"Parbhani, India",True,Parbhani
+"Jalna, Maharashtra",True,Jalna
+"Wardha, India",True,Wardha
+"Yavatmal, Maharashtra",True,Yavatmal
+"Beed, India",True,Beed
+"Gondia, Maharashtra",True,Gondia
+"Bhandara, India",True,Bhandara
+"Gadchiroli, Maharashtra",True,Gadchiroli
+"Hingoli, Maharashtra",True,Hingoli
+"Washim, India",True,Washim
+"Buldhana, Maharashtra",True,Buldhana
+"Sangli, India",True,Sangli
+"Ratnagiri, Maharashtra",True,Ratnagiri
+"Pune",True,Pune
+"Maharashtra",True,
+"Hinjewadi, Pune",True,Hinjewadi
+"Navi Mumbai",True,Navi Mumbai
+"📍 Mumbai 🇮🇳",True,Mumbai
+"Pune • Remote",True,Pune
+"PUNE, INDIA",True,Pune
+"mumbai",True,Mumbai
+"pune, maharashtra",True,Pune
+"NAGPUR",True,Nagpur
+"Thane, Maharashtra",True,Thane
+"Kalyan",True,Kalyan-Dombivli
+"Dombivli",True,Kalyan-Dombivli
+"Ambernath",True,Ambernath
+"Ulhasnagar",True,Ulhasnagar
+"Bhiwandi",True,Bhiwandi
+"Mira Bhayandar",True,Mira-Bhayandar
+"Vasai-Virar",True,Vasai-Virar
+"Panvel",True,Panvel
+"Pimpri",True,Pimpri-Chinchwad
+"PCMC",True,Pimpri-Chinchwad
+"Ichalkaranji, Maharashtra",True,Ichalkaranji
+"Malegaon",True,Malegaon
+"Chhatrapati Sambhajinagar, India",True,Chhatrapati Sambhajinagar
+"Ahmednagar, Maharashtra",True,Ahilyanagar
+"Osmanabad, India",True,Dharashiv
+"Navi-Mumbai",True,Navi Mumbai
+"NaviMumbai",True,Navi Mumbai
+"Bombay",True,Mumbai
+"Poona",True,Pune
+"Pune, Maharashtra, India 🏡",True,Pune
+"Developer in Mumbai",True,Mumbai
+"Based in Pune",True,Pune
+"Mumbai / Pune",True,Mumbai
+"Currently in Nagpur",True,Nagpur
+"Living in Thane",True,Thane
+"Working from Pune, India",True,Pune
+"India · Maharashtra · Pune",True,Pune
+"Chinchwad, India",True,Pimpri-Chinchwad
+"Mira Road",True,Mira-Bhayandar
+"Vasai",True,Vasai-Virar
+"Virar",True,Vasai-Virar
+"MH, India",True,
+"Maharashtra, IN",True,
+"Hinjawadi, Pune",True,Hinjewadi
+"Pune Remote",True,Pune
+"Mumbai 📍",True,Mumbai
+"Software Engineer, Pune",True,Pune
+"Nashik / Remote",True,Nashik
+"Full Stack Developer · Pune, India",True,Pune
+"Thane, Sri Lanka",False,
+"Pune, USA",False,
+"London (ex-Pune)",False,
+"formerly Nagpur, now Berlin",False,
+"Indianapolis, Indiana",False,
+"Puneet Sharma, Delhi",False,
+"Aurangabad, Bihar",False,
+"Aurangabad",False,
+"Bangalore, Karnataka",False,
+"from Pune",False,
+"",False,
+"New Delhi, India",False,
+"Hyderabad, Telangana",False,
+"Chennai, Tamil Nadu",False,
+"Kolkata, West Bengal",False,
+"Jaipur, Rajasthan",False,
+"Lucknow, UP",False,
+"Ahmedabad, Gujarat",False,
+"Chandigarh, Punjab",False,
+"Bhopal, Madhya Pradesh",False,
+"London, UK",False,
+"San Francisco, CA",False,
+"New York, USA",False,
+"Toronto, Canada",False,
+"Singapore",False,
+"Dubai, UAE",False,
+"Berlin, Germany",False,
+"Sydney, Australia",False,
+"Colombo, Sri Lanka",False,
+"Karachi, Pakistan",False,
+"Dhaka, Bangladesh",False,
+"ex-Mumbai, now London",False,
+"previously in Pune",False,
+"former Nagpur resident",False,
+"alumni of IIT Mumbai, now in USA",False,
+"was in Pune, moved to Bangalore",False,
+"India",False,
+"Indiana, USA",False,
+"Pune, United States",False,
+"Mumbai, Sri Lanka",False,
+"Thane Road, Singapore",False,
+"Pune University, Pakistan",False,
+"Paris, France",False,
+"Tokyo, Japan",False,
+"Seoul, South Korea",False,
+"Shanghai, China",False,
+"Moscow, Russia",False,
+"from Mumbai",False,
+"from Nagpur originally",False,
+"earlier in Pune, now Delhi",False,
+"relocated from Mumbai to USA",False,
+"moved from Nashik",False,
+"Patna, Bihar",False,
+"Ranchi, Jharkhand",False,
+"Guwahati, Assam",False,
+"Thiruvananthapuram, Kerala",False,
+"Vishakhapatnam, Andhra Pradesh",False,
+"Mysore, Karnataka",False,
+"Coimbatore, Tamil Nadu",False,
+"Surat, Gujarat",False,
+"Vadodara, Gujarat",False,
+"Indore, MP",False,
+"Pune, Canada",False,
+"Mumbai, United Kingdom",False,
+"Thane, Bangladesh",False,
+"Nagpur, Nepal",False,
+"formerly based in Kolhapur",False,
+"Nashik before, now Bangalore",False,
+"ex-Solapur developer in Dubai",False,
+"was Amravati, now Singapore",False,
+"Nanded resident who left for USA",False,
+"Previously Pune, currently London",False,
+"Used to be in Mumbai",False,

@@ -201,7 +201,7 @@ async def engage_candidate(candidate_id: int, custom_message: Optional[str] = No
             c.last_activity_at = datetime.utcnow()
             c.last_contacted_at = datetime.utcnow()
             if c.stage in (CandidateStage.SOURCED, CandidateStage.SCREENED):
-                c.stage = CandidateStage.OUTREACH_SENT
+                c.stage = CandidateStage.OUTREACH
             await session.commit()
 
     action = ("followup_sent" if is_followup else "outreach_sent") if sent else "outreach_failed"
@@ -237,7 +237,7 @@ async def run_followup_sweep(role_id: Optional[int] = None, follow_up_after_hour
     cutoff = datetime.utcnow() - timedelta(hours=follow_up_after_hours)
     async with AsyncSessionLocal() as session:
         q = select(Candidate).where(
-            Candidate.stage == CandidateStage.OUTREACH_SENT,
+            Candidate.stage == CandidateStage.OUTREACH,
             Candidate.last_contacted_at < cutoff,
             Candidate.outreach_count < 3,  # max 3 follow-ups
             Candidate.source_verified.is_(True),

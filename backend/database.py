@@ -18,17 +18,17 @@ AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 class Base(DeclarativeBase):
     pass
 
+# Frontend-compatible stages
 class CandidateStage(str, enum.Enum):
     SOURCED = "sourced"
     SCREENED = "screened"
-    OUTREACH_SENT = "outreach_sent"
+    OUTREACH = "outreach"
     REPLIED = "replied"
-    INTERVIEW_SCHEDULED = "interview_scheduled"
-    INTERVIEWED = "interviewed"
+    INTERVIEW = "interview"
     OFFER = "offer"
     HIRED = "hired"
     REJECTED = "rejected"
-    STALE = "stale"
+    CLOSED = "closed"  # Replaces STALE
 
 class RoleStatus(str, enum.Enum):
     ACTIVE = "active"
@@ -42,6 +42,24 @@ class Role(Base):
     description: Mapped[str] = mapped_column(Text)
     requirements: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[RoleStatus] = mapped_column(Enum(RoleStatus), default=RoleStatus.ACTIVE)
+    # Per-role target locations (Phase 2.6).  Default: Maharashtra.
+    target_locations: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
+    # Frontend-compatible fields
+    req_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    department: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    location: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    candidate_count: Mapped[int] = mapped_column(Integer, default=0)
+    pipeline_stages: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    health_score: Mapped[int] = mapped_column(Integer, default=70)
+    health_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    hiring_lead: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    audit_verified_time: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    total_sourced: Mapped[int] = mapped_column(Integer, default=0)
+    total_screened: Mapped[int] = mapped_column(Integer, default=0)
+    total_outreach: Mapped[int] = mapped_column(Integer, default=0)
+    total_replied: Mapped[int] = mapped_column(Integer, default=0)
+    total_interview: Mapped[int] = mapped_column(Integer, default=0)
+    total_offer: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
     candidates: Mapped[List["Candidate"]] = relationship("Candidate", back_populates="role")
@@ -67,8 +85,6 @@ class Candidate(Base):
     outreach_count: Mapped[int] = mapped_column(Integer, default=0)
     last_contacted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    # An interview is an absolute moment in time. PostgreSQL needs a timezone-aware
-    # column so an IST invite cannot be stored as a shifted UTC timestamp.
     interview_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     calendar_event_id: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     contact_consent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -76,6 +92,30 @@ class Candidate(Base):
     reminder_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Resolved location fields
+    location_raw: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    location_city: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    location_district: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    location_state: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    location_country_iso2: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    location_confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    location_reason: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    location_source: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    location_resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Frontend-compatible fields
+    public_profiles: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # github, stackoverflow
+    repos_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    followers_count: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    rep: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    masked_email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    is_email_revealed: Mapped[bool] = mapped_column(Boolean, default=False)
+    match_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    score_breakdown: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    raw_location_signals: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    consent: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    activity_timeline: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
+    title: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    avatar: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
     role: Mapped["Role"] = relationship("Role", back_populates="candidates")
@@ -91,6 +131,25 @@ class AgentLog(Base):
     candidate_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
+# Consent records for frontend compliance view
+class ConsentRecord(Base):
+    __tablename__ = "consent_records"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id"))
+    candidate_name: Mapped[str] = mapped_column(String(200))
+    masked_email: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(30))  # recorded, pending, withdrawn
+    recorded_date: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    expiry_date: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    days_remaining: Mapped[int] = mapped_column(Integer, default=0)
+    proof_method: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    proof_snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    proof_hash: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    scope: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    recorded_by: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
@@ -98,3 +157,8 @@ async def get_db():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+
+
+

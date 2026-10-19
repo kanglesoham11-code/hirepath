@@ -36,7 +36,11 @@ class Settings(BaseSettings):
     STALE_THRESHOLD_DAYS: int = 3
 
     class Config:
-        env_file = ".env"
+        import os
+        env_file = (
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+            ".env",
+        )
         extra = "allow"
 
 settings = Settings()

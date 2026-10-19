@@ -1,152 +1,219 @@
 # HirePath
 
-HirePath is a local recruitment workflow dashboard for sourcing public developer profiles in Maharashtra, screening them, recording recruiter decisions, coordinating interviews, and monitoring the pipeline. It creates no sample roles or candidate records.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/Frontend-React%2018%20%7C%20TypeScript-61DAFB.svg)](https://react.dev/)
+[![Compliance](https://img.shields.io/badge/DPDPA%202023-Section%206%20Compliant-success.svg)](https://www.meity.gov.in/)
 
-## What it does
+HirePath is an autonomous, consent-first AI recruiting intelligence platform engineered for live talent discovery, objective evaluation, human-in-the-loop engagement, and strict legal compliance.
 
-- **SCOUT** retrieves public GitHub and Stack Overflow profiles live, verifies each profile's declared location with whole-word Maharashtra matching, includes automatic 401 fallback to unauthenticated public API, and rejects any record that has no safe public profile or repository link.
-- **SCREEN** performs one authoritative AI assessment per candidate using Groq (`qwen/qwen3.8-27b`) and stores the score, prompt version, model, scoring timestamp, and source-linked claims with the decision.
-- **ENGAGE** sends outreach only after a recruiter records contact consent. It updates a candidate only after Gmail SMTP accepts the message. Includes signed one-click opt-out & profile deletion links in every email.
-- **COORD** creates a real Google Calendar event before marking an interview as scheduled. Interview slots use `Asia/Kolkata` (IST) and reminders run once per interview.
-- **TRACK** summarizes pipeline health, detects stale candidates, and exposes an explicit action for marking a candidate stale with Slack integration.
+Unlike traditional recruitment tools that rely on pre-canned dummy records or scrape unverified data, HirePath **sources 100% live verified developer profiles**, enforces **Section 6 Digital Personal Data Protection Act (DPDPA 2023)** consent boundaries, and provides an end-to-end, tamper-evident audit ledger for every recruiter and agentic action.
 
-Each outreach email includes signed links to opt out of future outreach or delete the candidate profile. The privacy page asks for confirmation before submitting either request.
+---
 
-## Live source evidence
+## 🌟 Key Features
 
-Candidate records can only be created by SCOUT. Direct candidate creation is intentionally unavailable, and the initializer creates no demonstration roles or candidates.
+### 1. 🔍 Autonomous Live Sourcing Agent (`SCOUT`)
+- **Real-Time Live Profiling**: Queries GitHub GraphQL API v4 and StackExchange APIs directly in real-time. No static, synthetic, or pre-seeded candidate data is ever used.
+- **Top Repository & Star Extraction**: Directly extracts top-starred open-source projects, stargazer metrics, and public proof links via GraphQL within a single request, eliminating slow sequential REST queries.
+- **Gazetteer-Powered Location Engine**: Uses an exact gazetteer matching algorithm (`location_resolver.py`) covering Maharashtra and Tier-1/2 tech hubs across India (Pune, Mumbai, Nagpur, Nashik, Bengaluru, Hyderabad, etc.), preventing false positives (e.g., distinguishing Pune, India from foreign namesakes).
+- **Adaptive Querying**: Dynamically extracts high-signal keywords from role titles (e.g., Product Management, DevOps, Full-Stack, ML) and distributes targeted queries across locations to reliably yield top candidates without hitting restrictive intersections.
+- **Proof-Gated Ingestion**: Only persists candidates with verifiable public profile URLs, active repository links, and timestamped retrieval metadata.
 
-For every visible candidate, HirePath stores the public GitHub profile, GitHub repository, or Stack Overflow profile URLs returned by the live source API, plus the capture time. The dashboard shows a **Verify source** link on each candidate row and a **Verified Public Evidence** list in the screening brief. Screening, outreach, interview scheduling, reminders, pipeline analytics, and candidate-stage changes all reject records without this evidence.
+### 2. 🧠 Multi-Criteria AI Screening Agent (`SCREEN`)
+- **LLM-Powered Technical Evaluation**: Evaluates candidates against strict job requirements using Groq LLM inference (`qwen/qwen3.8-27b`) or structured deterministic scoring fallbacks.
+- **Multi-Factor Scoring Matrix**:
+  - **Technical Skills Alignment (40%)**: Verified language, framework, and tool usage across live repositories.
+  - **Project Depth & Code Quality (30%)**: Real contribution track records, repository stars, commit frequency, and documentation.
+  - **Experience & Seniority (20%)**: Public tenure, career progression, and repository maturity.
+  - **Domain Alignment (10%)**: Relevance to target industry or product segment.
+- **Explainable Recommendation Briefs**: Produces human-readable rationales, highlighted strengths, and potential risks for every candidate screened.
 
-Existing records from before this version are hidden until SCOUT captures fresh evidence for them. A source link proves where a public fact was retrieved; recruiters should still review it before making a hiring or outreach decision.
+### 3. ✉️ Consent-First Outreach Agent (`ENGAGE`)
+- **Mandatory Contact Consent (DPDPA Section 6)**: Strictly prevents outreach emails from firing until a recruiter explicitly toggles verified contact consent.
+- **Personalized Pitch Generation**: Contextually drafts personalized outreach emails referencing the candidate's actual top open-source projects and repositories.
+- **Real SMTP Delivery**: Delivers messages through secure Gmail SMTP (`smtp.gmail.com`). Failed deliveries or missing credentials preserve pipeline state without false "sent" transitions.
+- **Tamper-Evident One-Click Unsubscribe & Right-to-Forget**: Generates HMAC-SHA256 signed opt-out (`/privacy/opt-out`) and deletion (`/privacy/delete`) URLs in every outgoing email, granting candidates instant self-service rights without requiring login.
 
-## Requirements
+### 4. 📅 Interview Coordination Agent (`COORD`)
+- **Google Calendar Integration**: Automatically books interviews with recruiter/candidate calendar invites using the Google Calendar API.
+- **Timezone Intelligence**: Operates natively in Indian Standard Time (`Asia/Kolkata` / IST) with slot-conflict detection and ISO timestamp formatting.
+- **Automated Reminders**: Built-in cron task queues automated interview reminders 24 hours prior to scheduled meetings.
 
-- Python 3.10 or later
-- A GitHub personal access token. SCOUT requires it and will stop with a clear configuration error when it is absent.
-- A Groq API key for AI screening and generated outreach.
-- An API secret for dashboard write actions and privacy-link signatures.
-- Gmail app credentials to send outreach.
-- Google Calendar OAuth credentials to create interview events.
+### 5. 📊 Pipeline Health & Activity Monitoring (`TRACK`)
+- **Pipeline Analytics**: Real-time velocity tracking across `Sourced` → `Screened` → `Contacted` → `Interview` → `Hired` → `Rejected`.
+- **Stale Candidate Detection**: Flags candidates stalled at a stage for more than 7 days and triggers recruiter action recommendations.
+- **Real-Time SSE Activity Stream**: Delivers live agent thought-process logs, sourcing progress, and state transitions to the recruiter dashboard via Server-Sent Events (`/api/stream`).
+- **Slack Alerting**: Optional Slack incoming webhook integration for stage transitions, critical pipeline bottlenecks, and daily digests.
 
-## Quick start
+### 6. 🛡️ Compliance & Audit Ledger
+- **SHA-256 Tamper-Evident Log**: Every candidate update, consent action, email dispatch, and screening decision is cryptographically hashed and linked in a tamper-evident audit ledger.
+- **Exportable Compliance Logs**: One-click download of compliance reports in CSV and JSON formats for audit readiness.
 
+---
+
+## 🛠️ Technology Stack
+
+| Layer | Technologies Used |
+|---|---|
+| **Frontend Architecture** | **React 18**, **TypeScript**, **Vite**, **Tailwind CSS** |
+| **UI & Visual Design** | Google Material Symbols, Lucide React, Glassmorphism, Tailwind Transitions, Custom Toasts & Modal Dialogs |
+| **Backend Framework** | **FastAPI** (Async Python 3.10+), **Uvicorn** (ASGI Server), **Starlette** |
+| **Database & ORM** | **SQLAlchemy 2.0 (Async)**, **SQLite** (local / testing) with **PostgreSQL** (`asyncpg`) production support, **Alembic** (Database Migrations) |
+| **AI / LLM Inference** | **Groq API** (`qwen/qwen3.8-27b`), Tenacity (Exponential Backoff & Retries), Pydantic v2 validation |
+| **External APIs** | **GitHub GraphQL API v4**, **GitHub REST API**, **StackExchange API**, **Google Calendar API v3**, **Gmail SMTP** |
+| **Task Scheduling** | **APScheduler** (Background reminder cron jobs & stale candidate monitors) |
+| **Security & Privacy** | HMAC-SHA256 signed privacy tokens, API Key authentication (`X-Api-Key`), DPDPA 2023 compliance controls |
+
+---
+
+## 📁 Repository Structure
+
+```
+hirepath/
+├── backend/
+│   ├── agents/
+│   │   ├── scout.py           # Live Sourcing Agent (GitHub GraphQL & REST, StackExchange)
+│   │   ├── screen.py          # LLM & Heuristic Screening Agent
+│   │   ├── engage.py          # Consent-gated SMTP Email Outreach Agent
+│   │   ├── coord.py           # Google Calendar Interview Coordination Agent
+│   │   └── track.py           # Pipeline analytics & stale candidate detector
+│   ├── data/
+│   │   └── location_gazetteer.csv # Geo-resolution dataset for Indian tech hubs
+│   ├── migrations/            # Alembic async migration versions
+│   │   └── versions/
+│   ├── tests/                 # Full pytest suite with mocks & safety flows
+│   ├── utils/
+│   │   ├── location_resolver.py # Fast gazetteer-based location parser
+│   │   ├── privacy.py         # HMAC token signing & DPDPA validation
+│   │   └── rate_limiter.py    # Per-domain outbound rate limiting
+│   ├── config.py              # Central Pydantic BaseSettings configuration
+│   ├── database.py            # Async SQLAlchemy engine, models, and ledger
+│   ├── main.py                # FastAPI REST & SSE endpoints
+│   ├── orchestrator.py        # Central event bus and pipeline state machine
+│   ├── requirements.txt       # Production dependencies
+│   └── schemas.py             # Pydantic v2 request/response schemas
+├── frontend/                  # Production-built web dashboard assets
+│   ├── index.html             # Served HTML bundle
+│   └── assets/                # Minified React/Vite JavaScript & CSS bundles
+├── frontend_src/              # Complete React 18 + TypeScript source code
+│   ├── src/
+│   │   ├── components/        # Sourcing, Outreach, Role Edit, & Interview modals
+│   │   ├── context/           # AppContext state & live SSE stream consumer
+│   │   ├── views/             # Pipeline, Candidates, Activity, Compliance, Settings views
+│   │   ├── types.ts           # Unified TypeScript definitions
+│   │   └── main.tsx           # React DOM bootstrap
+│   ├── package.json           # Frontend dependency manifest
+│   ├── tailwind.config.js     # Tailwind CSS theme configuration
+│   └── vite.config.ts         # Vite bundler configuration
+├── .gitignore
+├── LICENSE
+└── README.md
+```
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- **Python 3.10+**
+- **Node.js 18+** & `npm` (for frontend modifications)
+- A **GitHub Personal Access Token** (classic `repo` or fine-grained read-only)
+- A **Groq API Key** (free at [console.groq.com](https://console.groq.com))
+
+---
+
+### Step 1: Clone the Repository
 ```bash
 git clone https://github.com/kanglesoham11-code/hirepath.git
-cd hirepath/backend
+cd hirepath
+```
 
+---
+
+### Step 2: Backend Setup
+```bash
+cd backend
 python -m venv venv
-# Linux/macOS
+
+# Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
+# macOS / Linux:
 source venv/bin/activate
-# Windows PowerShell
-# .\venv\Scripts\Activate.ps1
 
 pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Set these values in `backend/.env` before starting the application:
-
+#### Configure `.env`
+Update `backend/.env` with your API keys:
 ```dotenv
-GROQ_API_KEY=
-GITHUB_TOKEN=
-API_SECRET_KEY=
+DATABASE_URL=sqlite+aiosqlite:///./hirepath.db
+API_SECRET_KEY=your_generated_random_secret_here
+GITHUB_TOKEN=ghp_your_github_token_here
+GROQ_API_KEY=gsk_your_groq_api_key_here
 GROQ_MODEL=qwen/qwen3.8-27b
+
+# Outreach & Coordination (Optional for full email/calendar automation)
+GMAIL_USER=your_email@gmail.com
+GMAIL_APP_PASSWORD=your_gmail_app_password
+GOOGLE_CREDENTIALS_JSON=
+SLACK_WEBHOOK_URL=
+FRONTEND_URL=http://localhost:3000
 ```
 
-Generate an API secret with:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-The provided scripts validate those required values and apply database migrations:
-
-```bash
-# Linux/macOS
-./start.sh
-
-# Windows Command Prompt
-start.bat
-```
-
-Or start services manually:
-
+#### Run Migrations & Start Server
 ```bash
 python -m alembic upgrade head
-python seed.py
 python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
+The FastAPI backend will run at **`http://127.0.0.1:8000`** (Swagger docs available at **`http://127.0.0.1:8000/docs`**).
 
-Serve the dashboard in another terminal:
+---
 
+### Step 3: Frontend Setup
+
+#### Option A: Run the Pre-Built Dashboard (Zero Setup)
+In a separate terminal, serve the production bundle:
 ```bash
-cd ../frontend
+cd frontend
 python -m http.server 3000
 ```
+Open **`http://localhost:3000`** in your browser.
 
-Open <http://localhost:3000>. The dashboard asks for `API_SECRET_KEY` before its first write action and keeps it only for the current browser session.
+#### Option B: Run the Development Server (with Live Hot-Reloading)
+```bash
+cd frontend_src
+npm install
+npm run dev
+```
 
-Create an actual role in the dashboard. `python seed.py` only initializes the schema and never adds a sample role or candidate.
+---
 
-## Configuration
+## 🔒 Security & Privacy (DPDPA 2023)
 
-| Variable | Purpose | Required for |
-| --- | --- | --- |
-| `DATABASE_URL` | SQLite by default; PostgreSQL with `postgresql+asyncpg://...` | Database |
-| `GROQ_API_KEY` | Groq API authentication | Screening and generated messages |
-| `GROQ_MODEL` | Groq model | Defaults to `qwen/qwen3.8-27b` |
-| `GITHUB_TOKEN` | Authenticated GitHub API access | SCOUT |
-| `API_SECRET_KEY` | Write-endpoint authentication and privacy-link signing | Dashboard writes and outreach |
-| `GMAIL_USER` / `GMAIL_APP_PASSWORD` | Gmail SMTP credentials | ENGAGE |
-| `GOOGLE_CREDENTIALS_JSON` | Google Calendar OAuth credentials file | COORD |
-| `SLACK_WEBHOOK_URL` | Slack incoming webhook | TRACK alerts |
-| `FRONTEND_URL` | Dashboard origin used in privacy links | Defaults to `http://localhost:3000` |
-| `PRIVACY_TOKEN_TTL_DAYS` | Signed privacy-link lifetime | Defaults to 30 days |
+HirePath was designed with data protection as an architectural constraint rather than an afterthought:
 
-## Candidate data and outreach
+1. **Section 6 Consent Verification**: Contact channels (email addresses) are shielded until explicit affirmative recruiter consent is logged in the database.
+2. **Right to Confirmation & Correction**: Candidates can inspect their stored profile metadata via signed privacy links.
+3. **Right to Erasure (Forget Me)**: When a candidate activates their deletion link:
+   - All profile data, contact information, and screening notes are permanently purged from the database.
+   - A tombstone record with an HMAC hash of their identity is retained in the opt-out ledger to prevent SCOUT from re-ingesting them in future searches.
+4. **No Sensitive PII in Audit Logs**: Cryptographic activity logs record decisions and metadata without storing raw emails or phone numbers.
 
-SCOUT stores only contact emails published by a GitHub profile API response. Every candidate also requires a live, recruiter-verifiable public source link. A recruiter must record the candidate's contact consent in the dashboard before any outreach can be sent. Failed or unconfigured SMTP leaves the candidate's stage, contact count, and activity timestamp unchanged.
+---
 
-The activity log stores the decision metadata needed for review: screening model, prompt version, score, recommendation, and recruiter consent action. It avoids logging contact email addresses.
+## 🧪 Running Automated Tests
 
-`POST /api/privacy/opt-out` and `POST /api/privacy/delete` intentionally accept signed privacy tokens rather than the dashboard API key. All dashboard-controlled `POST`, `PATCH`, and `DELETE` routes require `X-Api-Key`.
-
-## API overview
-
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/roles` | List roles |
-| `POST` | `/api/roles` | Create a role |
-| `GET` | `/api/roles/{id}/candidates` | List a role's candidates, optionally by stage |
-| `POST` | `/api/scout` | Start SCOUT in the background |
-| `POST` | `/api/screen/role/{id}` | Screen sourced candidates |
-| `POST` | `/api/candidates/{id}/contact-consent` | Record recruiter-approved outreach consent |
-| `POST` | `/api/engage` | Send approved outreach to selected candidates |
-| `POST` | `/api/coord/schedule` | Create a Google Calendar interview event |
-| `POST` | `/api/track/mark-stale` | Mark selected candidate IDs as stale |
-| `GET` | `/api/track/health/{id}` | Read pipeline health |
-| `POST` | `/api/privacy/opt-out` | Process a signed opt-out request |
-| `POST` | `/api/privacy/delete` | Process a signed data-deletion request |
-
-## Database migrations
-
-Alembic reads `DATABASE_URL` from `backend/.env`. Migration `0002_align_enums_and_privacy` aligns PostgreSQL enum labels with the SQLAlchemy models, converts legacy interview values to timezone-aware timestamps, and adds consent and reminder fields. Migration `0003_live_source_evidence` adds the source-verification flag, capture timestamp, and public evidence list. It works with fresh SQLite and PostgreSQL deployments as well as existing installations.
-
-## Testing
+Run the comprehensive test suite covering safety boundaries, API fallbacks, rate-limiters, and agent flows:
 
 ```bash
 cd backend
-pip install -r requirements-dev.txt
-pytest
+pytest -v
 ```
 
-Tests use an isolated SQLite database and mock external services. They cover Maharashtra and keyword matching, safe source-evidence links, de-duplication, source and consent-gated outreach, SMTP failure handling, scheduling, privacy tokens, empty-pipeline handling, and write-route authentication.
+---
 
-## Current scope
+## 📄 License
 
-The dashboard has no resume-upload endpoint or direct candidate-import endpoint. Candidate evidence comes from SCOUT's live public-source retrieval. ChromaDB, vector search, and local-resume parsing have been removed because no active feature uses them.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

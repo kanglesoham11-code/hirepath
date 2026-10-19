@@ -1,220 +1,492 @@
 """
-SCOUT — Sourcing Agent (Live Scraping — Maharashtra Focus)
+SCOUT — Sourcing Agent (Live Scraping — Location Engine v2)
 Sources candidates LIVE from GitHub, StackOverflow, and web search.
 All candidates are scraped in real-time — NO hardcoded data.
-Location filter: Maharashtra, India.
+Location filter: Production-grade resolver with configurable target regions.
 """
 import httpx
 import asyncio
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 from sqlalchemy import func, or_, select
 from database import Candidate, Role, CandidateStage, AsyncSessionLocal
 from utils.logger import log_event
 from utils.evidence import normalize_public_evidence_url, normalize_source_evidence
+from utils.location_resolver import resolve_location, resolve_for_target, LocationResult
+from utils.rate_limiter import get_github_search_limiter
 from config import settings
 
 logger = logging.getLogger("hirepath.scout")
 
+
+def mask_email(email: str) -> str:
+    """Mask email for display."""
+    if not email or "@" not in email:
+        return email
+    local, domain = email.split("@", 1)
+    if len(local) <= 2:
+        masked_local = local[0] + "*" * (len(local) - 1)
+    else:
+        masked_local = local[:2] + "*" * (len(local) - 2)
+    return f"{masked_local}@{domain}"
+
+
+def _sanitize_for_json(obj: any) -> any:
+    """Recursively convert LocationResult dataclass instances to dict for JSON serialization."""
+    if isinstance(obj, LocationResult):
+        return {
+            "raw": obj.raw,
+            "city": obj.city,
+            "district": obj.district,
+            "state": obj.state,
+            "country_iso2": obj.country_iso2,
+            "confidence": obj.confidence,
+            "matched_text": obj.matched_text,
+            "reason": obj.reason,
+            "accepted": obj.accepted,
+        }
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_sanitize_for_json(v) for v in obj)
+    return obj
+
 GITHUB_API = "https://api.github.com"
+GITHUB_GRAPHQL = "https://api.github.com/graphql"
 
 SCORE_REQUIRED_KEYS = ["score", "summary", "strengths", "concerns"]
 
-# Maharashtra cities for location matching (Fix #11: removed 'india' — too loose)
-MAHARASHTRA_LOCATIONS = [
-    "maharashtra", "mumbai", "pune", "nagpur", "thane", "nashik",
-    "aurangabad", "solapur", "kolhapur", "sangli", "navi mumbai",
-    "amravati", "nanded", "bhiwandi", "jalgaon", "akola", "latur",
-    "dhule", "ahmednagar", "chandrapur", "parbhani", "ichalkaranji",
-    "jalna", "ambernath", "malegaon", "mira-bhayandar", "panvel",
-]
+
+# ── Per-run state (Phase 0.3: remove module-level global) ─────────────────────
+
+@dataclass
+class ScoutRunState:
+    """Per-run mutable state for a single SCOUT execution."""
+    github_token_invalid: bool = False
+    searched: int = 0
+    returned: int = 0
+    accepted: int = 0
+    rejected_by_reason: dict = None
+
+    def __post_init__(self):
+        if self.rejected_by_reason is None:
+            self.rejected_by_reason = {}
+
+    def record_rejection(self, reason: str) -> None:
+        self.rejected_by_reason[reason] = self.rejected_by_reason.get(reason, 0) + 1
 
 
 # ── GitHub helpers ────────────────────────────────────────────────────────────
 
-_github_token_invalid = False
-
-async def _github_headers() -> dict:
-    global _github_token_invalid
+def _github_headers(state: ScoutRunState) -> dict:
     h = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "HirePath/2.0 (Recruitment Intelligence; https://github.com/kanglesoham11-code/hirepath)",
     }
-    if settings.GITHUB_TOKEN and not _github_token_invalid:
+    if settings.GITHUB_TOKEN and not state.github_token_invalid:
         h["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
     return h
 
 
-async def _github_get(client: httpx.AsyncClient, url: str, headers: dict) -> httpx.Response:
+async def _github_get(client: httpx.AsyncClient, url: str, headers: dict, state: ScoutRunState) -> httpx.Response:
     """Wrapper that retries without Authorization if GitHub returns 401 Bad credentials."""
-    global _github_token_invalid
-    resp = await client.get(url, headers=headers)
+    limiter = get_github_search_limiter()
+    async with limiter:
+        resp = await client.get(url, headers=headers)
     if resp.status_code == 401 and "Authorization" in headers:
-        _github_token_invalid = True
+        state.github_token_invalid = True
         logger.warning(f"GitHub returned 401 for {url}. Configured GITHUB_TOKEN is invalid/expired. Switching to unauthenticated mode.")
         fallback = {k: v for k, v in headers.items() if k != "Authorization"}
-        resp = await client.get(url, headers=fallback)
+        async with limiter:
+            resp = await client.get(url, headers=fallback)
+    elif resp.status_code in (403, 429):
+        await limiter.handle_rate_limit_response(resp.status_code, dict(resp.headers))
     return resp
 
 
-def _is_maharashtra_location(location: str | None) -> bool:
-    """Check if a location string matches Maharashtra or its cities.
-    Fix #11: Uses word-boundary matching to avoid false positives like 'Indianapolis'."""
-    if not location:
-        return False
-    loc_lower = location.lower().strip()
-    for mh_loc in MAHARASHTRA_LOCATIONS:
-        # Use word boundary matching: check the location word is surrounded
-        # by non-alpha chars (or string boundaries)
-        if re.search(r'\b' + re.escape(mh_loc) + r'\b', loc_lower):
-            return True
-    return False
-
-
-async def search_github_users_maharashtra(keywords: list[str], max_results: int = 20) -> list[dict]:
+async def _github_graphql_search(
+    client: httpx.AsyncClient,
+    query: str,
+    headers: dict,
+    state: ScoutRunState,
+    max_results: int = 100,
+) -> list[dict]:
+    """Search GitHub users via GraphQL search(type: USER) with pagination.
+    Returns empty list and sets state.github_token_invalid on 401.
     """
-    Search GitHub for users matching job keywords LOCATED IN MAHARASHTRA.
-    Uses GitHub's location qualifier for targeted results.
-    All data is fetched LIVE from the GitHub API.
-    """
-    all_candidates = []
-    headers = await _github_headers()
+    limiter = get_github_search_limiter()
+    results = []
+    cursor = None
 
-    # Strategy 1: Search with location:Maharashtra + keywords
-    maharashtra_locations = ["Maharashtra", "Mumbai", "Pune", "Nagpur", "Thane", "Nashik"]
-    
-    for mh_city in maharashtra_locations[:4]:  # Top 4 cities
-        keyword_query = "+".join(keywords[:3]) if keywords else "developer"
-        query = f"{keyword_query}+location:{mh_city}+type:user"
-        url = f"{GITHUB_API}/search/users?q={query}&per_page={min(max_results, 30)}&sort=repositories"
-        
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                resp = await _github_get(client, url, headers)
-                if resp.status_code == 200:
-                    items = resp.json().get("items", [])
-                    for item in items:
-                        all_candidates.append({
-                            "login": item.get("login"),
-                            "url": item.get("url", ""),
-                            "html_url": item.get("html_url", ""),
-                            "city_hint": mh_city,
+    graphql_query = """
+    query($q: String!, $first: Int!, $after: String) {
+      search(query: $q, type: USER, first: $first, after: $after) {
+        userCount
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          ... on User {
+            login
+            name
+            location
+            bio
+            url
+            email
+            company
+            followers { totalCount }
+            repositories(first: 5, orderBy: {field: STARGAZERS, direction: DESC}) {
+              totalCount
+              nodes {
+                name
+                url
+                stargazerCount
+                primaryLanguage { name }
+                description
+              }
+            }
+            isHireable
+          }
+        }
+      }
+      rateLimit { remaining resetAt }
+    }
+    """
+
+    while len(results) < max_results:
+        batch_size = min(100, max_results - len(results))
+        variables = {"q": query, "first": batch_size}
+        if cursor:
+            variables["after"] = cursor
+
+        async with limiter:
+            resp = await client.post(
+                GITHUB_GRAPHQL,
+                headers=headers,
+                json={"query": graphql_query, "variables": variables},
+                timeout=20,
+            )
+
+        if resp.status_code == 401:
+            state.github_token_invalid = True
+            logger.warning("GitHub GraphQL returned 401 — token is invalid/expired. Will fall back to REST search.")
+            return results  # Caller will use REST fallback
+
+        if resp.status_code in (403, 429):
+            await limiter.handle_rate_limit_response(resp.status_code, dict(resp.headers))
+            break
+
+        if resp.status_code != 200:
+            logger.warning(f"GitHub GraphQL returned {resp.status_code}")
+            break
+
+        data = resp.json()
+        if "errors" in data:
+            logger.warning(f"GitHub GraphQL errors: {data['errors']}")
+            break
+
+        search_data = data.get("data", {}).get("search", {})
+        nodes = search_data.get("nodes", [])
+
+        # Log rate limit info
+        rate_limit = data.get("data", {}).get("rateLimit", {})
+        if rate_limit:
+            logger.debug(f"GitHub GraphQL rate limit remaining: {rate_limit.get('remaining')}")
+
+        for node in nodes:
+            if node and node.get("login"):
+                raw_repos = node.get("repositories", {}).get("nodes", []) or []
+                top_repos = []
+                for r in raw_repos:
+                    if r and r.get("name"):
+                        lang = r.get("primaryLanguage", {})
+                        top_repos.append({
+                            "name": r["name"],
+                            "url": r.get("url"),
+                            "stars": r.get("stargazerCount", 0),
+                            "language": lang.get("name") if lang else None,
+                            "description": (r.get("description") or "")[:100],
                         })
-                elif resp.status_code == 403:
-                    logger.warning("GitHub rate limit hit. Waiting...")
-                    await asyncio.sleep(5)
-                else:
-                    logger.warning(f"GitHub search returned {resp.status_code} for {mh_city}")
-        except Exception as e:
-            logger.error(f"GitHub search error for {mh_city}: {e}")
-        
-        await asyncio.sleep(0.8)  # Respect rate limits
+                results.append({
+                    "login": node["login"],
+                    "name": node.get("name"),
+                    "location": node.get("location"),
+                    "bio": node.get("bio"),
+                    "url": node.get("url"),
+                    "email": node.get("email"),
+                    "company": node.get("company"),
+                    "followers": node.get("followers", {}).get("totalCount", 0),
+                    "public_repos": node.get("repositories", {}).get("totalCount", 0),
+                    "hireable": node.get("isHireable"),
+                    "top_repos": top_repos,
+                })
 
-    # Strategy 2: Broader keyword search, then filter by location
-    keyword_query = "+".join(keywords[:4]) if keywords else "developer"
-    url = f"{GITHUB_API}/search/users?q={keyword_query}+type:user&per_page=30&sort=repositories"
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await _github_get(client, url, headers)
-            if resp.status_code == 200:
-                items = resp.json().get("items", [])
-                for item in items:
-                    all_candidates.append({
-                        "login": item.get("login"),
-                        "url": item.get("url", ""),
-                        "html_url": item.get("html_url", ""),
-                        "city_hint": "global_search",
-                    })
-    except Exception as e:
-        logger.error(f"GitHub global search error: {e}")
+        page_info = search_data.get("pageInfo", {})
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+
+    return results
+
+
+async def _github_rest_search_users(
+    client: httpx.AsyncClient,
+    query: str,
+    state: ScoutRunState,
+    max_results: int = 30,
+) -> list[dict]:
+    """Search GitHub users via REST /search/users API.
+    Works both authenticated and unauthenticated (10 req/min unauth).
+    This is the fallback when GraphQL fails due to invalid token.
+    """
+    limiter = get_github_search_limiter()
+    results = []
+    page = 1
+    per_page = min(max_results, 30)
+    # REST search never sends the invalid token
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "HirePath/2.0 (Recruitment Intelligence; https://github.com/kanglesoham11-code/hirepath)",
+    }
+    if settings.GITHUB_TOKEN and not state.github_token_invalid:
+        headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
+
+    while len(results) < max_results:
+        url = f"{GITHUB_API}/search/users?q={query}&per_page={per_page}&page={page}"
+        try:
+            async with limiter:
+                resp = await client.get(url, headers=headers, timeout=20)
+
+            if resp.status_code == 401:
+                # Drop auth and retry once
+                state.github_token_invalid = True
+                headers = {k: v for k, v in headers.items() if k != "Authorization"}
+                async with limiter:
+                    resp = await client.get(url, headers=headers, timeout=20)
+
+            if resp.status_code in (403, 429):
+                await limiter.handle_rate_limit_response(resp.status_code, dict(resp.headers))
+                break
+            if resp.status_code == 422:
+                logger.warning(f"GitHub REST search validation error: {resp.text[:200]}")
+                break
+            if resp.status_code != 200:
+                logger.warning(f"GitHub REST search returned {resp.status_code}")
+                break
+
+            data = resp.json()
+            items = data.get("items", [])
+            if not items:
+                break
+
+            for item in items:
+                if len(results) >= max_results:
+                    break
+                # REST /search/users returns minimal info, fetch full profile
+                profile_url = item.get("url", "")
+                profile = {}
+                if profile_url:
+                    try:
+                        async with limiter:
+                            pr = await client.get(profile_url, headers=headers, timeout=10)
+                        if pr.status_code == 200:
+                            profile = pr.json()
+                    except Exception:
+                        pass
+
+                results.append({
+                    "login": item.get("login", ""),
+                    "name": profile.get("name") or item.get("login", ""),
+                    "location": profile.get("location"),
+                    "bio": profile.get("bio"),
+                    "url": item.get("html_url", ""),
+                    "email": profile.get("email"),
+                    "company": profile.get("company"),
+                    "followers": profile.get("followers", 0),
+                    "public_repos": profile.get("public_repos", 0),
+                    "hireable": profile.get("hireable"),
+                })
+
+            page += 1
+            # REST search only returns max ~1000 results
+            if len(items) < per_page:
+                break
+        except Exception as e:
+            logger.error(f"GitHub REST search error: {e}")
+            break
+
+        await asyncio.sleep(0.5)  # Be gentle with unauthenticated rate limits
+
+    return results
+
+
+async def search_github_users_graphql(
+    keywords: list[str],
+    target_locations: list[dict] | None,
+    max_results: int = 20,
+    state: ScoutRunState | None = None,
+) -> list[dict]:
+    """Search GitHub users via GraphQL, run location resolver on each result.
+
+    Uses all gazetteer entries for search queries, not just 4 cities.
+    """
+    if state is None:
+        state = ScoutRunState()
+
+    from utils.location_resolver import _load_gazetteer
+    _, alias_map = _load_gazetteer()
+
+    # Build unique search location terms from the gazetteer
+    search_locations = set()
+    for entry_key in alias_map:
+        entry = alias_map[entry_key]
+        if entry.state == "Maharashtra" and entry.kind in ("city", "state"):
+            search_locations.add(entry.canonical)
+
+    # If token is invalid/unauthenticated, only search major cities to avoid rate limits
+    if state.github_token_invalid or not settings.GITHUB_TOKEN:
+        major_cities = {"Mumbai", "Pune", "Nagpur", "Nashik", "Thane", "Navi Mumbai", "Pimpri-Chinchwad"}
+        search_locations = {loc for loc in search_locations if loc in major_cities}
+    # Prioritize major tech hubs first so candidates are found rapidly in seconds
+    priority_order = ["Pune", "Mumbai", "Nagpur", "Nashik", "Thane", "Navi Mumbai", "Pimpri-Chinchwad", "Aurangabad", "Maharashtra"]
+    sorted_locs = [loc for loc in priority_order if loc in search_locations]
+    sorted_locs.extend([loc for loc in sorted(search_locations) if loc not in priority_order])
+
+    all_candidates = []
+    headers = _github_headers(state)
+
+    # Clean and isolate keywords - remove commas and punctuation
+    cleaned_keywords = []
+    for kw in keywords:
+        cleaned = re.sub(r'[,;]+', ' ', kw).strip()
+        for sub in cleaned.split():
+            sub_clean = sub.strip()
+            if sub_clean and len(sub_clean) >= 2 and sub_clean.lower() not in [k.lower() for k in cleaned_keywords]:
+                cleaned_keywords.append(sub_clean)
+    
+    if not cleaned_keywords:
+        cleaned_keywords = ["developer"]
+
+    async with httpx.AsyncClient(timeout=25) as client:
+        # Loop through keywords and locations
+        for kw in cleaned_keywords[:3]:
+            if len(all_candidates) >= max_results:
+                break
+            for location_name in sorted_locs:
+                if len(all_candidates) >= max_results:
+                    break
+
+                # Quote multi-word places
+                loc_q = f'"{location_name}"' if " " in location_name else location_name
+                query = f"{kw} location:{loc_q} type:user"
+                state.searched += 1
+
+                try:
+                    if state.github_token_invalid or not settings.GITHUB_TOKEN:
+                        users = await _github_rest_search_users(
+                            client, query, state,
+                            max_results=min(max_results - len(all_candidates), 30),
+                        )
+                    else:
+                        users = await _github_graphql_search(
+                            client, query, headers, state,
+                            max_results=min(max_results - len(all_candidates), 30),
+                        )
+                        if not users and state.github_token_invalid:
+                            users = await _github_rest_search_users(
+                                client, query, state,
+                                max_results=min(max_results - len(all_candidates), 30),
+                            )
+                    state.returned += len(users)
+
+                    for user in users:
+                        location_text = user.get("location", "")
+                        loc_result = resolve_for_target(location_text or "", target_locations)
+
+                        if loc_result.accepted:
+                            state.accepted += 1
+                            user["_location_result"] = loc_result
+                            all_candidates.append(user)
+                        else:
+                            state.record_rejection(loc_result.reason or "no_match")
+
+                except Exception as e:
+                    logger.error(f"GitHub search error for {kw} in {location_name}: {e}")
+
+                if len(all_candidates) >= max_results:
+                    break
 
     # Deduplicate by login
     seen_logins = set()
-    unique_candidates = []
+    unique = []
     for c in all_candidates:
-        login = c.get("login", "").lower()
+        login = (c.get("login") or "").lower()
         if login and login not in seen_logins:
             seen_logins.add(login)
-            unique_candidates.append(c)
+            unique.append(c)
 
-    # Fetch full profiles and filter by Maharashtra location
+    # Enrich with top repos if not already populated by GraphQL
     enriched = []
-    for item in unique_candidates[:max_results * 2]:  # Fetch more to filter
-        if len(enriched) >= max_results:
-            break
+    async with httpx.AsyncClient(timeout=15) as client:
+        for user in unique[:max_results]:
+            repos_data = user.get("top_repos") or []
+            if not repos_data and (state.github_token_invalid or not settings.GITHUB_TOKEN):
+                try:
+                    repos_url = f"{GITHUB_API}/users/{user['login']}/repos?sort=stars&per_page=5"
+                    repos_resp = await _github_get(client, repos_url, _github_headers(state), state)
+                    if repos_resp.status_code == 200:
+                        for repo in repos_resp.json()[:5]:
+                            repos_data.append({
+                                "name": repo.get("name"),
+                                "url": repo.get("html_url"),
+                                "stars": repo.get("stargazers_count", 0),
+                                "language": repo.get("language"),
+                                "description": (repo.get("description") or "")[:100],
+                            })
+                except Exception:
+                    pass
 
-        profile = {}
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                pr = await _github_get(client, item["url"], headers)
-                if pr.status_code == 200:
-                    profile = pr.json()
-                elif pr.status_code == 403:
-                    logger.warning("Rate limited on profile fetch, sleeping...")
-                    await asyncio.sleep(10)
-                    continue
-        except Exception:
-            continue
-
-        location = profile.get("location", "")
-        
-        # A location search is only a GitHub search hint. Validate every enriched
-        # profile itself so a missing or mismatched profile location cannot pass.
-        if not _is_maharashtra_location(location):
-            continue
-
-        # Fetch top repos for richer profile data
-        repos_data = []
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                repos_url = f"{GITHUB_API}/users/{item.get('login')}/repos?sort=stars&per_page=5"
-                repos_resp = await _github_get(client, repos_url, headers)
-                if repos_resp.status_code == 200:
-                    for repo in repos_resp.json()[:5]:
-                        repos_data.append({
-                            "name": repo.get("name"),
-                            "url": repo.get("html_url"),
-                            "stars": repo.get("stargazers_count", 0),
-                            "language": repo.get("language"),
-                            "description": (repo.get("description") or "")[:100],
-                        })
-        except Exception:
-            pass
-
-        enriched.append({
-            "name": profile.get("name") or item.get("login", ""),
-            "github_url": profile.get("html_url") or item.get("html_url", ""),
-            "email": profile.get("email"),
-            "location": location,
-            "bio": profile.get("bio"),
-            "company": profile.get("company"),
-            "public_repos": profile.get("public_repos", 0),
-            "followers": profile.get("followers", 0),
-            "hireable": profile.get("hireable"),
-            "top_repos": repos_data,
-            "source": "github_maharashtra",
-            "raw": profile,
-        })
-        
-        await asyncio.sleep(0.5)  # Rate limit between profile fetches
+            loc_result: LocationResult = user.get("_location_result")
+            enriched.append({
+                "name": user.get("name") or user.get("login", ""),
+                "github_url": user.get("url", "").replace("https://api.github.com/users/", "https://github.com/") if "api.github.com" in user.get("url", "") else user.get("url", ""),
+                "email": user.get("email"),
+                "location": user.get("location"),
+                "bio": user.get("bio"),
+                "company": user.get("company"),
+                "public_repos": user.get("public_repos", 0),
+                "followers": user.get("followers", 0),
+                "hireable": user.get("hireable"),
+                "top_repos": repos_data,
+                "source": "github_maharashtra",
+                "raw": user,
+                "_location_result": loc_result,
+            })
 
     return enriched
 
 
-async def search_github_repo_contributors(repo: str, max_results: int = 10) -> list[dict]:
-    """
-    Get contributors from a specific repo, filter for Maharashtra-based devs.
-    ALL data is fetched LIVE from GitHub API.
-    """
+async def search_github_repo_contributors(
+    repo: str,
+    target_locations: list[dict] | None,
+    max_results: int = 10,
+    state: ScoutRunState | None = None,
+) -> list[dict]:
+    """Get contributors from a specific repo, filter for target location devs."""
+    if state is None:
+        state = ScoutRunState()
+
     url = f"{GITHUB_API}/repos/{repo}/contributors?per_page={max_results * 3}"
-    headers = await _github_headers()
-    
+    headers = _github_headers(state)
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await _github_get(client, url, headers)
+            resp = await _github_get(client, url, headers, state)
             if resp.status_code != 200:
                 return []
             items = resp.json()
@@ -222,56 +494,60 @@ async def search_github_repo_contributors(repo: str, max_results: int = 10) -> l
         return []
 
     candidates = []
-    for item in items:
-        if len(candidates) >= max_results:
-            break
-            
-        # Fetch full profile to check location
-        profile = {}
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                pr = await _github_get(client, item.get("url", ""), headers)
+    async with httpx.AsyncClient(timeout=10) as client:
+        for item in items:
+            if len(candidates) >= max_results:
+                break
+
+            profile = {}
+            try:
+                pr = await _github_get(client, item.get("url", ""), headers, state)
                 profile = pr.json() if pr.status_code == 200 else {}
-        except Exception:
-            continue
+            except Exception:
+                continue
 
-        location = profile.get("location", "")
-        # Only include Maharashtra-based contributors
-        if not _is_maharashtra_location(location):
-            continue
+            location_text = profile.get("location", "")
+            loc_result = resolve_for_target(location_text or "", target_locations)
 
-        candidates.append({
-            "name": profile.get("name") or item.get("login", ""),
-            "github_url": item.get("html_url", ""),
-            "email": profile.get("email"),
-            "location": location,
-            "bio": profile.get("bio"),
-            "company": profile.get("company"),
-            "public_repos": profile.get("public_repos", 0),
-            "followers": profile.get("followers", 0),
-            "source": "github_contributor_maharashtra",
-            "contributed_to": repo,
-            "contributions": item.get("contributions", 0),
-            "raw": item,
-        })
-        
-        await asyncio.sleep(0.3)
+            if not loc_result.accepted:
+                state.record_rejection(loc_result.reason or "no_match")
+                continue
+
+            state.accepted += 1
+            candidates.append({
+                "name": profile.get("name") or item.get("login", ""),
+                "github_url": item.get("html_url", ""),
+                "email": profile.get("email"),
+                "location": location_text,
+                "bio": profile.get("bio"),
+                "company": profile.get("company"),
+                "public_repos": profile.get("public_repos", 0),
+                "followers": profile.get("followers", 0),
+                "source": "github_contributor_maharashtra",
+                "contributed_to": repo,
+                "contributions": item.get("contributions", 0),
+                "raw": item,
+                "_location_result": loc_result,
+            })
 
     return candidates
 
 
 # ── StackOverflow (Live Scraping) ─────────────────────────────────────────────
 
-async def search_stackoverflow_users(keywords: list[str], max_results: int = 10) -> list[dict]:
-    """
-    Search StackOverflow for users with relevant tags located in Maharashtra.
-    Uses the public StackExchange API — ALL data is fetched LIVE.
-    """
+async def search_stackoverflow_users(
+    keywords: list[str],
+    target_locations: list[dict] | None,
+    max_results: int = 10,
+    state: ScoutRunState | None = None,
+) -> list[dict]:
+    """Search StackOverflow for users with relevant tags located in target region."""
+    if state is None:
+        state = ScoutRunState()
+
     candidates = []
-    # StackExchange does not provide a location query. We fetch a bounded set
-    # of public profiles, then retain only accounts with a declared Maharashtra
-    # location and relevant public answer tags.
     role_keywords = {keyword.lower() for keyword in keywords if keyword.strip()}
+
     for page in range(1, 4):
         url = (
             f"https://api.stackexchange.com/2.3/users"
@@ -281,7 +557,7 @@ async def search_stackoverflow_users(keywords: list[str], max_results: int = 10)
             f"&page={page}"
             f"&filter=!nNPvSNdWme"
         )
-        
+
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(url)
@@ -291,7 +567,9 @@ async def search_stackoverflow_users(keywords: list[str], max_results: int = 10)
                         if len(candidates) >= max_results:
                             break
                         user_location = user.get("location", "")
-                        if not _is_maharashtra_location(user_location):
+                        loc_result = resolve_for_target(user_location or "", target_locations)
+                        if not loc_result.accepted:
+                            state.record_rejection(loc_result.reason or "no_match")
                             continue
 
                         user_id = user.get("user_id")
@@ -309,9 +587,6 @@ async def search_stackoverflow_users(keywords: list[str], max_results: int = 10)
                                     if tag.get("name")
                                 ]
 
-                        # A high reputation alone does not establish relevance
-                        # for a role. Require at least one public answer tag that
-                        # matches the role query when the role supplied keywords.
                         if role_keywords and not (role_keywords & set(tag_names)):
                             continue
 
@@ -320,6 +595,7 @@ async def search_stackoverflow_users(keywords: list[str], max_results: int = 10)
                         if github_url and "github.com" not in github_url:
                             github_url = ""
 
+                        state.accepted += 1
                         candidates.append({
                             "name": user.get("display_name") or "",
                             "github_url": github_url,
@@ -337,12 +613,13 @@ async def search_stackoverflow_users(keywords: list[str], max_results: int = 10)
                             "stackoverflow_url": user.get("link", ""),
                             "reputation": user.get("reputation", 0),
                             "raw": {"profile": user, "top_answer_tags": tag_names},
+                            "_location_result": loc_result,
                         })
         except Exception as e:
             logger.error(f"StackOverflow search error: {e}")
-        
+
         await asyncio.sleep(0.5)
-        
+
         if len(candidates) >= max_results:
             break
 
@@ -439,7 +716,7 @@ def compute_quick_heuristic_score(candidate: dict, role_description: str, role_r
     combined_reqs = (role_requirements + " " + role_description).lower()
     req_keywords = _extract_keywords(combined_reqs)
 
-    score = 25  # Base score for qualifying Maharashtra profile
+    score = 25  # Base score for qualifying profile
     matched_skills = []
 
     # Check top repos languages and descriptions
@@ -489,7 +766,7 @@ def compute_quick_heuristic_score(candidate: dict, role_description: str, role_r
 
     score = max(0, min(100, score))
 
-    strengths = [f"Matches skills: {', '.join(matched_skills)}"] if matched_skills else ["Active technical profile in Maharashtra"]
+    strengths = [f"Matches skills: {', '.join(matched_skills)}"] if matched_skills else ["Active technical profile"]
     if total_stars > 0:
         strengths.append(f"{total_stars} stars across top repositories")
     if candidate.get("contributed_to"):
@@ -544,9 +821,11 @@ async def run_scout(role_id: int, keywords: list[str] | None = None, max_candida
     """
     Async generator — yields progress events as candidates are found.
     ALL candidates are sourced LIVE from APIs — no hardcoded data.
-    Location filter: Maharashtra, India.
+    Location filter: configurable per-role target (defaults to Maharashtra).
     Saves each qualified candidate to DB.
     """
+    run_state = ScoutRunState()
+
     async with AsyncSessionLocal() as session:
         role = await session.get(Role, role_id)
         if not role:
@@ -559,37 +838,42 @@ async def run_scout(role_id: int, keywords: list[str] | None = None, max_candida
         yield {"event": "error", "agent": "SCOUT", "message": message}
         return
 
+    # Per-role target locations (Phase 2.6)
+    target_locations = role.target_locations or [{"state": "Maharashtra", "country_iso2": "IN", "remote_ok": False}]
+    target_label = target_locations[0].get("state", "Maharashtra") if target_locations else "Maharashtra"
+
     role_keywords = keywords or _extract_keywords(role.title + " " + (role.requirements or ""))
-    
-    await log_event("SCOUT", "started", f"Scouting for role: {role.title} | Location: Maharashtra", {"keywords": role_keywords, "location": "Maharashtra, India"}, role_id=role_id)
-    yield {"event": "started", "agent": "SCOUT", "message": f"Starting LIVE candidate search for '{role.title}' in Maharashtra", "keywords": role_keywords, "location": "Maharashtra, India"}
+
+    await log_event("SCOUT", "started", f"Scouting for role: {role.title} | Location: {target_label}", {"keywords": role_keywords, "location": target_label}, role_id=role_id)
+    yield {"event": "started", "agent": "SCOUT", "message": f"Starting LIVE candidate search for '{role.title}' in {target_label}", "keywords": role_keywords, "location": target_label}
 
     all_raw: list[dict] = []
 
-    # 1. GitHub users in Maharashtra
-    yield {"event": "progress", "agent": "SCOUT", "message": "🔍 Searching GitHub users in Maharashtra..."}
-    github_users = await search_github_users_maharashtra(role_keywords, max_results=12)
+    # 1. GitHub users via GraphQL search - target sufficient candidates to satisfy max_candidates
+    gh_target = max(max_candidates * 2, 25)
+    yield {"event": "progress", "agent": "SCOUT", "message": f"🔍 Searching GitHub users in {target_label} via GraphQL..."}
+    github_users = await search_github_users_graphql(role_keywords, target_locations, max_results=gh_target, state=run_state)
     all_raw.extend(github_users)
-    yield {"event": "progress", "agent": "SCOUT", "message": f"Found {len(github_users)} GitHub users in Maharashtra"}
+    yield {"event": "progress", "agent": "SCOUT", "message": f"Found {len(github_users)} GitHub users in {target_label}"}
 
-    # 2. GitHub contributors from relevant repos (filtered by Maharashtra)
-    repo_map = _keywords_to_repos(role_keywords)
-    for repo in repo_map[:2]:
-        yield {"event": "progress", "agent": "SCOUT", "message": f"Checking Maharashtra-based contributors in {repo}..."}
-        contribs = await search_github_repo_contributors(repo, max_results=5)
-        all_raw.extend(contribs)
-        await asyncio.sleep(0.5)
+    # 2. GitHub contributors from relevant repos if more needed
+    if len(all_raw) < max_candidates:
+        repo_map = _keywords_to_repos(role_keywords)
+        for repo in repo_map[:2]:
+            yield {"event": "progress", "agent": "SCOUT", "message": f"Checking {target_label}-based contributors in {repo}..."}
+            contribs = await search_github_repo_contributors(repo, target_locations, max_results=5, state=run_state)
+            all_raw.extend(contribs)
 
-    # 3. StackOverflow users in Maharashtra
-    yield {"event": "progress", "agent": "SCOUT", "message": "🔍 Searching StackOverflow for Maharashtra developers..."}
-    so_users = await search_stackoverflow_users(role_keywords, max_results=8)
-    all_raw.extend(so_users)
-    yield {"event": "progress", "agent": "SCOUT", "message": f"Found {len(so_users)} StackOverflow users in Maharashtra"}
+    # 3. StackOverflow users if more needed
+    if len(all_raw) < max_candidates:
+        yield {"event": "progress", "agent": "SCOUT", "message": f"🔍 Searching StackOverflow for {target_label} developers..."}
+        so_users = await search_stackoverflow_users(role_keywords, target_locations, max_results=8, state=run_state)
+        all_raw.extend(so_users)
+        yield {"event": "progress", "agent": "SCOUT", "message": f"Found {len(so_users)} StackOverflow users in {target_label}"}
 
     yield {"event": "progress", "agent": "SCOUT", "message": f"Total raw candidates found: {len(all_raw)}. Scoring and deduplicating..."}
 
-    # Fix #8: Deduplicate FIRST, then apply limit. A source record must also
-    # include a public evidence URL before it can become a candidate.
+    # Deduplicate FIRST, then apply limit
     added = 0
     for raw in all_raw:
         if added >= max_candidates:
@@ -614,20 +898,94 @@ async def run_scout(role_id: int, keywords: list[str] | None = None, max_candida
         if await is_duplicate(role_id, gh, em, name, source):
             continue
 
-        # Score candidate with rate limit protection
+        # Score candidate
         try:
             scoring = await score_candidate(raw, role.description, role.requirements or "")
         except Exception as e:
             logger.error(f"Score failed for {raw.get('name')}: {e}")
-            await asyncio.sleep(2)
             continue
-            
+
         score_val = float(scoring.get("score", 0))
 
-        if score_val < 20:  # skip very low scores
+        # Phase 0.4: Dead threshold — base is 25, so use 25 as actual threshold
+        if score_val < 25:
             continue
 
+        # Get location result from the raw candidate
+        loc_result: LocationResult | None = raw.get("_location_result")
+        location_text = raw.get("location", "")
+
+        # Build location display string
+        loc_display = ""
+        if loc_result and loc_result.accepted:
+            parts = [p for p in [loc_result.city, loc_result.state] if p]
+            loc_display = ", ".join(parts) if parts else location_text
+
+        # Convert LocationResult to dict for JSON serialization in raw_data
+        raw_copy = _sanitize_for_json(dict(raw))
+
+        # Build screen_brief with primitive values only (no dataclass refs)
+        screen_brief = {
+            "scout_summary": scoring.get("summary"),
+            "strengths": scoring.get("strengths", []),
+            "concerns": scoring.get("concerns", []),
+            "location": loc_display or location_text or target_label,
+            "evidence": evidence,
+            "location_confidence": loc_result.confidence if loc_result else None,
+            "location_matched": loc_result.matched_text if loc_result else None,
+        }
+
         async with AsyncSessionLocal() as session:
+            # Build public profiles
+            public_profiles = {}
+            if gh:
+                public_profiles["github"] = gh.replace("https://github.com/", "")
+            
+            # Generate avatar from name
+            avatar = "".join([n[0] for n in name.split()[:2]]).upper()
+            
+            # Build score breakdown from heuristic scoring
+            strengths = scoring.get("strengths", [])
+            concerns = scoring.get("concerns", [])
+            score_breakdown = {
+                "coreStack": {"score": min(30, int(score_val * 0.4)), "max": 30, "label": "Core Stack", "desc": "; ".join(strengths[:2]), "evidence": raw.get("github_url", "")},
+                "distributedSystems": {"score": min(25, int(score_val * 0.3)), "max": 25, "label": "Distributed Systems", "desc": "; ".join(strengths[2:4]), "evidence": ""},
+                "experience": {"score": min(25, int(score_val * 0.2)), "max": 25, "label": "Experience", "desc": "", "evidence": ""},
+                "recency": {"score": min(20, int(score_val * 0.1)), "max": 20, "label": "Recency", "desc": "", "evidence": ""},
+            }
+            
+            # Build raw location signals
+            raw_location_signals = {
+                "locationString": location_text or "",
+                "company": raw.get("company", "") or "",
+                "timezone": "UTC+05:30",
+                "note": f"Matched {loc_result.matched_text} in {source}" if loc_result and loc_result.matched_text else "",
+            }
+            
+            # Build consent info (default pending)
+            consent = {
+                "status": "pending",
+                "recordedDate": None,
+                "expiryDate": None,
+                "daysRemaining": None,
+                "channel": None,
+                "recordedBy": None,
+                "proofHash": None,
+                "proofSnippet": None,
+                "proofMethod": None,
+            }
+            
+            # Build activity timeline
+            activity_timeline = [{
+                "action": f"Sourced via {source} search",
+                "timestamp": datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M IST"),
+                "actor": "HirePath System",
+                "type": "system",
+            }]
+            
+            # Generate avatar from name
+            avatar = "".join([n[0] for n in name.split()[:2]]).upper()
+            
             c = Candidate(
                 role_id=role_id,
                 name=name,
@@ -639,23 +997,48 @@ async def run_scout(role_id: int, keywords: list[str] | None = None, max_candida
                 source_evidence=evidence,
                 stage=CandidateStage.SOURCED,
                 score=score_val,
-                screen_brief={
-                    "scout_summary": scoring.get("summary"),
-                    "strengths": scoring.get("strengths", []),
-                    "concerns": scoring.get("concerns", []),
-                    "location": raw.get("location", "Maharashtra, India"),
-                    "evidence": evidence,
-                },
-                last_activity_at=datetime.utcnow(),
-                raw_data=raw.get("raw", {}),
+                screen_brief=screen_brief,
+                last_activity_at=datetime.now(timezone.utc),
+                raw_data=raw_copy,
+                # Resolved location fields (Phase 2.1)
+                location_raw=location_text or None,
+                location_city=loc_result.city if loc_result else None,
+                location_district=loc_result.district if loc_result else None,
+                location_state=loc_result.state if loc_result else None,
+                location_country_iso2=loc_result.country_iso2 if loc_result else None,
+                location_confidence=loc_result.confidence if loc_result else None,
+                location_reason=loc_result.reason if loc_result else None,
+                location_source=source,
+                location_resolved_at=datetime.now(timezone.utc),
+                # Frontend-compatible fields
+                public_profiles=public_profiles,
+                repos_count=raw.get("public_repos"),
+                followers_count=str(raw.get("followers", 0)) if raw.get("followers") else None,
+                rep=raw.get("followers"),
+                masked_email=mask_email(em) if em else None,
+                is_email_revealed=False,
+                match_score=int(score_val),
+                score_breakdown=score_breakdown,
+                raw_location_signals=raw_location_signals,
+                consent=consent,
+                activity_timeline=activity_timeline,
+                title=raw.get("title") or raw.get("bio", "")[:100] if raw.get("bio") else None,
+                avatar="".join([n[0] for n in name.split()[:2]]).upper(),
             )
             session.add(c)
+            # Update role stage counter dynamically in DB
+            role_obj = await session.get(Role, role_id)
+            if role_obj:
+                role_obj.candidate_count = (role_obj.candidate_count or 0) + 1
+                curr_stages = dict(role_obj.pipeline_stages or {})
+                curr_stages["sourced"] = curr_stages.get("sourced", 0) + 1
+                role_obj.pipeline_stages = curr_stages
             await session.commit()
             await session.refresh(c)
             cid = c.id
 
         added += 1
-        await log_event("SCOUT", "candidate_added", f"Added {raw.get('name')} from {raw.get('location', 'Maharashtra')} (score={score_val:.0f})", candidate_id=cid, role_id=role_id)
+        await log_event("SCOUT", "candidate_added", f"Added {raw.get('name')} from {loc_display or location_text} (score={score_val:.0f})", candidate_id=cid, role_id=role_id)
         yield {
             "event": "candidate_found",
             "agent": "SCOUT",
@@ -666,17 +1049,35 @@ async def run_scout(role_id: int, keywords: list[str] | None = None, max_candida
                 "source": raw.get("source"),
                 "source_evidence": evidence,
                 "score": score_val,
-                "location": raw.get("location", "Maharashtra"),
+                "location": loc_display or location_text or target_label,
+                "location_confidence": loc_result.confidence if loc_result else None,
                 "summary": scoring.get("summary"),
                 "strengths": scoring.get("strengths", []),
             }
         }
-        
+
         # Smooth UI streaming
         await asyncio.sleep(0.05)
 
-    await log_event("SCOUT", "completed", f"Scout complete: {added} Maharashtra-based candidates added", role_id=role_id)
-    yield {"event": "completed", "agent": "SCOUT", "message": f"Scout complete. {added} Maharashtra-based candidates added to pipeline.", "count": added}
+    # Phase 4.3: Log counts by stage
+    logger.info(
+        f"SCOUT complete: searched={run_state.searched} returned={run_state.returned} "
+        f"accepted={run_state.accepted} added={added} "
+        f"rejections={run_state.rejected_by_reason}"
+    )
+    await log_event(
+        "SCOUT", "completed",
+        f"Scout complete: {added} candidates added from {target_label}",
+        data={
+            "searched": run_state.searched,
+            "returned": run_state.returned,
+            "accepted": run_state.accepted,
+            "added": added,
+            "rejected_by_reason": run_state.rejected_by_reason,
+        },
+        role_id=role_id,
+    )
+    yield {"event": "completed", "agent": "SCOUT", "message": f"Scout complete. {added} candidates added to pipeline from {target_label}.", "count": added}
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
@@ -691,7 +1092,8 @@ def _extract_keywords(text: str) -> list[str]:
                    "tailwind", "nextjs", "vue", "angular", "mongodb", "elasticsearch",
                    "flutter", "dart", "swift", "kotlin", "android", "ios", "spring",
                    "microservices", "kafka", "rabbitmq", "terraform", "jenkins", "cicd",
-                   "ai", "data", "engineer", "software", "cloud", "api", "sql", "c++", "nlp"]
+                   "ai", "data", "engineer", "software", "cloud", "api", "sql", "c++", "nlp",
+                   "product", "manager", "management", "agile", "scrum", "qa", "security", "designer", "architect"]
     text_lower = text.lower()
     # Fix #12: Match whole words only using word boundaries
     found = [kw for kw in common_tech if re.search(r'\b' + re.escape(kw) + r'\b', text_lower)]
@@ -704,6 +1106,7 @@ def _extract_keywords(text: str) -> list[str]:
 
 
 def _keywords_to_repos(keywords: list[str]) -> list[str]:
+    """Phase 0.5: Map keywords to repos by most specific match first."""
     mapping = {
         "fastapi": ["tiangolo/fastapi"],
         "python": ["psf/requests", "pallets/flask"],
@@ -726,7 +1129,9 @@ def _keywords_to_repos(keywords: list[str]) -> list[str]:
         "spring": ["spring-projects/spring-boot"],
         "terraform": ["hashicorp/terraform"],
     }
+    # Phase 0.5: Most specific match first — sort by longest keyword match
     repos = []
-    for kw in keywords:
+    sorted_keywords = sorted(keywords, key=len, reverse=True)
+    for kw in sorted_keywords:
         repos.extend(mapping.get(kw.lower(), []))
     return list(dict.fromkeys(repos))  # dedupe while preserving order

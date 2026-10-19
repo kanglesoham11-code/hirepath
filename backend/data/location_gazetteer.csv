@@ -1,0 +1,89 @@
+canonical,kind,district,state,country_iso2,aliases
+Maharashtra,state,,Maharashtra,IN,MH|Maha
+Mumbai,city,Mumbai City,Maharashtra,IN,Bombay|Bambai
+Navi Mumbai,city,Thane,Maharashtra,IN,Navi-Mumbai|NaviMumbai|New Bombay|New Mumbai
+Thane,city,Thane,Maharashtra,IN,Thana
+Kalyan-Dombivli,city,Thane,Maharashtra,IN,Kalyan|Dombivli|Kalyan Dombivli
+Ambernath,town,Thane,Maharashtra,IN,
+Ulhasnagar,city,Thane,Maharashtra,IN,
+Bhiwandi,city,Thane,Maharashtra,IN,Bhivandi
+Mira-Bhayandar,city,Thane,Maharashtra,IN,Mira Bhayandar|Mira Road|Bhayandar
+Vasai-Virar,city,Thane,Maharashtra,IN,Vasai|Virar|Vasai Virar|Bassein
+Panvel,city,Raigad,Maharashtra,IN,
+Pune,city,Pune,Maharashtra,IN,Poona
+Pimpri-Chinchwad,city,Pune,Maharashtra,IN,Pimpri|Chinchwad|PCMC|Pimpri Chinchwad
+Hinjewadi,town,Pune,Maharashtra,IN,Hinjawadi|Rajiv Gandhi Infotech Park
+Nagpur,city,Nagpur,Maharashtra,IN,
+Nashik,city,Nashik,Maharashtra,IN,Nasik
+Chhatrapati Sambhajinagar,city,Chhatrapati Sambhajinagar,Maharashtra,IN,Aurangabad|Sambhajinagar
+Solapur,city,Solapur,Maharashtra,IN,Sholapur
+Kolhapur,city,Kolhapur,Maharashtra,IN,
+Sangli,city,Sangli,Maharashtra,IN,Sangli Miraj Kupwad
+Satara,city,Satara,Maharashtra,IN,
+Ratnagiri,city,Ratnagiri,Maharashtra,IN,
+Ahilyanagar,city,Ahilyanagar,Maharashtra,IN,Ahmednagar|Nagar
+Dharashiv,city,Dharashiv,Maharashtra,IN,Osmanabad
+Amravati,city,Amravati,Maharashtra,IN,Amaravati
+Akola,city,Akola,Maharashtra,IN,
+Latur,city,Latur,Maharashtra,IN,
+Nanded,city,Nanded,Maharashtra,IN,Nanded Waghala
+Jalgaon,city,Jalgaon,Maharashtra,IN,
+Dhule,city,Dhule,Maharashtra,IN,Dhulia
+Chandrapur,city,Chandrapur,Maharashtra,IN,Chanda
+Parbhani,city,Parbhani,Maharashtra,IN,
+Jalna,city,Jalna,Maharashtra,IN,
+Malegaon,city,Nashik,Maharashtra,IN,
+Ichalkaranji,town,Kolhapur,Maharashtra,IN,
+Wardha,city,Wardha,Maharashtra,IN,
+Yavatmal,city,Yavatmal,Maharashtra,IN,Yeotmal
+Buldhana,city,Buldhana,Maharashtra,IN,Buldana
+Beed,city,Beed,Maharashtra,IN,Bir|Bid
+Gondia,city,Gondia,Maharashtra,IN,
+Bhandara,city,Bhandara,Maharashtra,IN,
+Gadchiroli,city,Gadchiroli,Maharashtra,IN,
+Hingoli,city,Hingoli,Maharashtra,IN,
+Washim,city,Washim,Maharashtra,IN,
+Sindhudurg,district,Sindhudurg,Maharashtra,IN,Sawantwadi
+Mumbai City,district,Mumbai City,Maharashtra,IN,
+Mumbai Suburban,district,Mumbai Suburban,Maharashtra,IN,
+Thane,district,Thane,Maharashtra,IN,
+Raigad,district,Raigad,Maharashtra,IN,Kolaba
+Ratnagiri,district,Ratnagiri,Maharashtra,IN,
+Sindhudurg,district,Sindhudurg,Maharashtra,IN,
+Pune,district,Pune,Maharashtra,IN,
+Satara,district,Satara,Maharashtra,IN,
+Sangli,district,Sangli,Maharashtra,IN,
+Kolhapur,district,Kolhapur,Maharashtra,IN,
+Solapur,district,Solapur,Maharashtra,IN,
+Nashik,district,Nashik,Maharashtra,IN,
+Ahilyanagar,district,Ahilyanagar,Maharashtra,IN,Ahmednagar
+Jalgaon,district,Jalgaon,Maharashtra,IN,
+Dhule,district,Dhule,Maharashtra,IN,
+Nandurbar,district,Nandurbar,Maharashtra,IN,
+Chhatrapati Sambhajinagar,district,Chhatrapati Sambhajinagar,Maharashtra,IN,Aurangabad
+Jalna,district,Jalna,Maharashtra,IN,
+Beed,district,Beed,Maharashtra,IN,
+Latur,district,Latur,Maharashtra,IN,
+Dharashiv,district,Dharashiv,Maharashtra,IN,Osmanabad
+Nanded,district,Nanded,Maharashtra,IN,
+Parbhani,district,Parbhani,Maharashtra,IN,
+Hingoli,district,Hingoli,Maharashtra,IN,
+Nagpur,district,Nagpur,Maharashtra,IN,
+Wardha,district,Wardha,Maharashtra,IN,
+Bhandara,district,Bhandara,Maharashtra,IN,
+Gondia,district,Gondia,Maharashtra,IN,
+Chandrapur,district,Chandrapur,Maharashtra,IN,
+Gadchiroli,district,Gadchiroli,Maharashtra,IN,
+Amravati,district,Amravati,Maharashtra,IN,
+Akola,district,Akola,Maharashtra,IN,
+Washim,district,Washim,Maharashtra,IN,
+Buldhana,district,Buldhana,Maharashtra,IN,
+Yavatmal,district,Yavatmal,Maharashtra,IN,
+Palghar,district,Palghar,Maharashtra,IN,
+Lonavala,town,Pune,Maharashtra,IN,
+Khandala,town,Pune,Maharashtra,IN,
+Shirdi,town,Ahilyanagar,Maharashtra,IN,
+Karad,town,Satara,Maharashtra,IN,
+Baramati,town,Pune,Maharashtra,IN,
+Akluj,town,Solapur,Maharashtra,IN,
+Miraj,town,Sangli,Maharashtra,IN,
